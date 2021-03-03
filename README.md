@@ -100,7 +100,7 @@ This section lists the names which are recognised by the `--objects` command-lin
 * `p7`, `puranus`, `uranus`: Uranus
 * `p8`, `pneptune`, `neptune`: Neptune
 * `p9`, `ppluto`, `pluto`: Pluto
-* `A<n>`: Asteroid number `n`, e.g. `A1` for Ceres, or `A4` for Vesta, or `A90377` for Sedna
+* `A<n>`: Asteroid number `n`, e.g. `A1` for Ceres, or `A4` for Vesta, or `A90377` for Sedna, or `A136199` for Eris, or `A3` for Juno, or `A2` for Pallas, or `A10` for Hygiea
 * `C/1995 O1`. Comets may be referred to by their names in this format
 * `1P/Halley`. Comets may be referred to by their names in this format
 * `95P/Chiron`. Comets may be referred to by their names in this format
