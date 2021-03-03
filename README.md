@@ -100,9 +100,10 @@ This section lists the names which are recognised by the `--objects` command-lin
 * `p7`, `puranus`, `uranus`: Uranus
 * `p8`, `pneptune`, `neptune`: Neptune
 * `p9`, `ppluto`, `pluto`: Pluto
-* `A<n>`: Asteroid number `n`, e.g. `A1` for Ceres, or `A4` for Vesta
+* `A<n>`: Asteroid number `n`, e.g. `A1` for Ceres, or `A4` for Vesta, or `A90377` for Sedna
 * `C/1995 O1`. Comets may be referred to by their names in this format
 * `1P/Halley`. Comets may be referred to by their names in this format
+* `95P/Chiron`. Comets may be referred to by their names in this format
 * `0001P`. Periodic comets may be referred to by their names in the format %4dP
 * `CJ95O010`. Comets may be referred to by their Minor Planet Center designations
 * `C<n>`: Comer number `n`. `n` is the line number within the file [Soft00Cmt.txt](http://www.minorplanetcenter.net/iau/Ephemerides/Comets/Soft00Cmt.txt), downloaded from the Minor Planet Center.
