@@ -1,7 +1,7 @@
 // settings.h
 // 
 // -------------------------------------------------
-// Copyright 2015-2020 Dominic Ford
+// Copyright 2015-2025 Dominic Ford
 //
 // This file is part of EphemerisCompute.
 //
@@ -28,10 +28,12 @@
 
 typedef struct settings {
     double jd_min, jd_max, jd_step, ra_dec_epoch;  // All specified in TT
+    double latitude, longitude;  // Used for topocentric correction
+    int enable_topocentric_correction;  // Boolean
     int use_orbital_elements, output_binary, output_format, output_constellations;
     int body_id[MAX_OBJECTS];
     char object_name[MAX_OBJECTS][FNAME_LENGTH];
-    const char *objects_input_list;
+    const char *objects_input_list, *jd_list;
     int objects_count;
 } settings;
 

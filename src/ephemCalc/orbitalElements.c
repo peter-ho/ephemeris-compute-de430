@@ -1,7 +1,7 @@
 // orbitalElements.c
 // 
 // -------------------------------------------------
-// Copyright 2015-2020 Dominic Ford
+// Copyright 2015-2025 Dominic Ford
 //
 // This file is part of EphemerisCompute.
 //
@@ -26,7 +26,6 @@
 #include <math.h>
 #include <string.h>
 
-#include <gsl/gsl_const_mksa.h>
 #include <gsl/gsl_math.h>
 
 #include "coreUtils/asciiDouble.h"
@@ -37,16 +36,24 @@
 
 #include "mathsTools/julianDate.h"
 
-#include "settings/settings.h"
-
 #include "jpl.h"
 #include "orbitalElements.h"
 #include "magnitudeEstimate.h"
+
+// Numerical constants
+const static double ORBIT_CONST_SPEED_OF_LIGHT = 299792458.; // m/s
+const static double ORBIT_CONST_ASTRONOMICAL_UNIT = 149597870700.; // m
+const static double ORBIT_CONST_GM_SOLAR = 1.32712440041279419e20; // m^3 s^-2
 
 // Binary files containing the orbital elements of solar system objects
 FILE *planet_database_file = NULL;
 FILE *asteroid_database_file = NULL;
 FILE *comet_database_file = NULL;
+
+// Filenames of binary files
+char planet_database_filename[FNAME_LENGTH];
+char asteroid_database_filename[FNAME_LENGTH];
+char comet_database_filename[FNAME_LENGTH];
 
 // Blocks of memory used to hold the orbital elements
 orbitalElements *planet_database = NULL;
@@ -107,14 +114,14 @@ int OrbitalElements_ReadBinaryData(const char *filename, FILE **file_pointer, in
     if (*file_pointer == NULL) return 1; // FAIL
 
     // Read the number of objects with orbital elements in this file
-    dcffread((void *) item_count, sizeof(int), 1, *file_pointer);
+    dcf_fread((void *) item_count, sizeof(int), 1, *file_pointer, filename_with_path, __FILE__, __LINE__);
     if (DEBUG) {
         sprintf(temp_err_string, "Object count = %d", *item_count);
         ephem_log(temp_err_string);
     }
 
     // Read the number of secure orbits described in this file
-    dcffread((void *) item_secure_count, sizeof(int), 1, *file_pointer);
+    dcf_fread((void *) item_secure_count, sizeof(int), 1, *file_pointer, filename_with_path, __FILE__, __LINE__);
     if (DEBUG) {
         sprintf(temp_err_string, "Objects with secure orbits = %d", *item_secure_count);
         ephem_log(temp_err_string);
@@ -268,7 +275,7 @@ void orbitalElements_planets_readAsciiData() {
         // Ignore blank lines and comment lines
         if (line[0] == '\0') continue;
         if (line[0] == '#') continue;
-        if (strlen(line) < 100) continue;
+        if (strlen(line) < 168) continue;
 
         // Read body id
         body_id = (int) get_float(line, NULL);
@@ -277,7 +284,7 @@ void orbitalElements_planets_readAsciiData() {
         planet_secure_count++;
 
         // Read planet name
-        for (i = 141, j = 0; (line[i] > ' '); i++, j++) planet_database[body_id].name[j] = line[i];
+        for (i = 166, j = 0; (line[i] > ' '); i++, j++) planet_database[body_id].name[j] = line[i];
         planet_database[body_id].name[j] = '\0';
 
         // Fill out dummy information
@@ -287,34 +294,48 @@ void orbitalElements_planets_readAsciiData() {
 
         // Now start reading orbital elements of object
         for (i = 18; line[i] == ' '; i++);
+        // AU
         planet_database[body_id].semiMajorAxis = get_float(line + i, NULL);
         for (i = 30; line[i] == ' '; i++);
+        // convert <AU per century> to <AU per day>
         planet_database[body_id].semiMajorAxis_dot = get_float(line + i, NULL) / 36525.;
         for (i = 42; line[i] == ' '; i++);
         planet_database[body_id].eccentricity = get_float(line + i, NULL);
         for (i = 53; line[i] == ' '; i++);
+        // convert <per century> into <per day>
         planet_database[body_id].eccentricity_dot = get_float(line + i, NULL) / 36525.;
         for (i = 65; line[i] == ' '; i++);
+        // convert <degrees> to <radians; J2000.0>
         planet_database[body_id].longAscNode = get_float(line + i, NULL) * M_PI / 180;
-        for (i = 75; line[i] == ' '; i++);
-        planet_database[body_id].longAscNode_dot = get_float(line + i, NULL) / 36525. / 3600 * M_PI / 180;
-        for (i = 85; line[i] == ' '; i++);
+        for (i = 79; line[i] == ' '; i++);
+        // Convert <degrees/century> into <radians/day>
+        planet_database[body_id].longAscNode_dot = get_float(line + i, NULL) / 36525. * M_PI / 180;
+        for (i = 91; line[i] == ' '; i++);
+        // radians; J2000.0
         planet_database[body_id].inclination = get_float(line + i, NULL) * M_PI / 180;
-        for (i = 94; line[i] == ' '; i++);
-        planet_database[body_id].inclination_dot = get_float(line + i, NULL) / 36525. / 3600 * M_PI / 180;
-        for (i = 101; line[i] == ' '; i++);
+        for (i = 104; line[i] == ' '; i++);
+        // Convert <degrees/century> into <radians/day>
+        planet_database[body_id].inclination_dot = get_float(line + i, NULL) / 36525. * M_PI / 180;
+        for (i = 116; line[i] == ' '; i++);
+        // convert <degrees> to <radians; J2000.0>
         const double longitude_perihelion = get_float(line + i, NULL) * M_PI / 180;
-        for (i = 111; line[i] == ' '; i++);
-        const double longitude_perihelion_dot = get_float(line + i, NULL) / 36525. / 3600 * M_PI / 180;
-        for (i = 120; line[i] == ' '; i++);
+        for (i = 129; line[i] == ' '; i++);
+        // Convert <degrees/century> into <radians/day>
+        const double longitude_perihelion_dot = get_float(line + i, NULL) / 36525. * M_PI / 180;
+        for (i = 141; line[i] == ' '; i++);
+        // convert <degrees> to <radians; J2000.0>
         const double mean_longitude = get_float(line + i, NULL) * M_PI / 180;
-        for (i = 130; line[i] == ' '; i++);
+        for (i = 155; line[i] == ' '; i++);
+        // convert <unix time> to <julian date>
         planet_database[body_id].epochOsculation = jd_from_unix(get_float(line + i, NULL));
 
+        // radians; J2000.0
         planet_database[body_id].meanAnomaly = mean_longitude - longitude_perihelion;
 
+        // radians; J2000.0
         planet_database[body_id].argumentPerihelion = longitude_perihelion - planet_database[body_id].longAscNode;
 
+        // radians per day
         planet_database[body_id].argumentPerihelion_dot = (longitude_perihelion_dot -
                                                            planet_database[body_id].longAscNode_dot);
     }
@@ -333,14 +354,15 @@ void orbitalElements_planets_readAsciiData() {
     OrbitalElements_DumpBinaryData("dcfbinary.plt", planet_database, &planet_database_offset,
                                    planet_count, planet_secure_count);
 
-    // Make table indicating that we have loaded all of the orbital elements in this table
+    // Make table indicating that we have loaded all the orbital elements in this table
     planet_database_items_loaded = (unsigned char *) lt_malloc(planet_count * sizeof(unsigned char));
     memset(planet_database_items_loaded, 1, planet_count);
 
     // Open a file pointer to the file
     char filename_with_path[FNAME_LENGTH];
-    sprintf(filename_with_path, "%s/../data/%s", SRCDIR, "dcfbinary.plt");
+    snprintf(filename_with_path, FNAME_LENGTH, "%s/../data/%s", SRCDIR, "dcfbinary.plt");
     planet_database_file = fopen(filename_with_path, "rb");
+    snprintf(planet_database_filename, FNAME_LENGTH, "%s", filename_with_path);
 }
 
 //! orbitalElements_asteroids_readAsciiData - Read the asteroid orbital elements contained in the original astorb.dat
@@ -410,9 +432,7 @@ void orbitalElements_asteroids_readAsciiData() {
 
     // Read through astorb.dat, line by line
     while ((!feof(input)) && (!ferror(input))) {
-        char line[FNAME_LENGTH], *line_ptr;
-        int n, day_obs_span, obs_count;
-        double tmp;
+        char line[FNAME_LENGTH];
 
         // Read a line from the input file
         file_readline(input, line);
@@ -427,7 +447,8 @@ void orbitalElements_asteroids_readAsciiData() {
 
         // Unnumbered asteroid; don't bother adding to catalogue
         if (i >= 6) continue;
-        else n = (int) get_float(line + i, NULL);
+
+        const int n = (int) get_float(line + i, NULL);
 
         // asteroid_count should be the highest number asteroid we have encountered
         if (asteroid_count <= n) asteroid_count = n + 1;
@@ -437,47 +458,67 @@ void orbitalElements_asteroids_readAsciiData() {
         for (i = 25; (i > 7) && (line[i] > '\0') && (line[i] <= ' '); i--);
         strncpy(asteroid_database[n].name, line + 7, i - 6);
         asteroid_database[n].name[i - 6] = '\0';
-        for (i = 42; (line[i] > '\0') && (line[i] <= ' '); i++);
 
         // Read absolute magnitude
+        for (i = 42; (line[i] > '\0') && (line[i] <= ' '); i++);
         asteroid_database[n].absoluteMag = get_float(line + i, NULL);
-        line_ptr = next_word(line + i);
 
         // Read slope parameter
-        asteroid_database[n].slopeParam_G = get_float(line_ptr, NULL);
-        for (i = 94; (line[i] > '\0') && (line[i] <= ' '); i++);
+        for (i = 48; (line[i] > '\0') && (line[i] <= ' '); i++);
+        asteroid_database[n].slopeParam_G = get_float(line + i, NULL);
 
         // Read number of days spanned by data used to derive orbit
-        day_obs_span = (int) get_float(line + i, NULL);
-        line_ptr = next_word(line + i);
+        int day_obs_span;
+        {
+            int j;
+            char buffer[8];
+            snprintf(buffer, 7, "%s", line + 94);
+            for (j = 0; (buffer[j] > '\0') && (buffer[j] <= ' '); j++);
+            day_obs_span = (int) get_float(buffer + j, NULL);
+        }
 
         // Read number of observations used to derive orbit
-        obs_count = (int) get_float(line_ptr, NULL);
+        for (i = 100; (line[i] > '\0') && (line[i] <= ' '); i++);
+        const int obs_count = (int) get_float(line + i, NULL);
 
         // Orbit deemed secure if more than 10 yrs data
         asteroid_database[n].secureOrbit = (day_obs_span > 3650) && (obs_count > 500);
 
         // Count how many objects we've seen with secure orbits
         if (asteroid_database[n].secureOrbit) asteroid_secure_count++;
-        line_ptr = next_word(line_ptr);
 
         // Now start reading orbital elements of object
+        {
+            for (i = 106; (line[i] > '\0') && (line[i] <= ' '); i++);
+            const double tmp = get_float(line + i, NULL);
+            // julian date
+            asteroid_database[n].epochOsculation = julian_day((int) floor(tmp / 10000), ((int) floor(tmp / 100)) % 100,
+                                                              ((int) floor(tmp)) % 100, 0, 0, 0, &i, temp_err_string);
+        }
 
-        tmp = get_float(line_ptr, NULL);
-        asteroid_database[n].epochOsculation = julian_day((int) floor(tmp / 10000), ((int) floor(tmp / 100)) % 100,
-                                                          ((int) floor(tmp)) % 100, 0, 0, 0, &i, temp_err_string);
-        line_ptr = next_word(line_ptr);
-        asteroid_database[n].meanAnomaly = get_float(line_ptr, NULL) * M_PI / 180; // Read mean anomaly
-        line_ptr = next_word(line_ptr);
-        asteroid_database[n].argumentPerihelion = get_float(line_ptr, NULL) * M_PI / 180; // Read argument of perihelion
-        line_ptr = next_word(line_ptr);
-        asteroid_database[n].longAscNode = get_float(line_ptr, NULL) * M_PI / 180; // Read longitude of ascending node
-        line_ptr = next_word(line_ptr);
-        asteroid_database[n].inclination = get_float(line_ptr, NULL) * M_PI / 180; // Read inclination of orbit
-        line_ptr = next_word(line_ptr);
-        asteroid_database[n].eccentricity = get_float(line_ptr, NULL); // Read eccentricity of orbit
-        line_ptr = next_word(line_ptr);
-        asteroid_database[n].semiMajorAxis = get_float(line_ptr, NULL); // Read semi-major axis of orbit
+        // Read mean anomaly -- radians; J2000.0
+        for (i = 115; (line[i] > '\0') && (line[i] <= ' '); i++);
+        asteroid_database[n].meanAnomaly = get_float(line + i, NULL) * M_PI / 180;
+
+        // Read argument of perihelion -- radians; J2000.0
+        for (i = 126; (line[i] > '\0') && (line[i] <= ' '); i++);
+        asteroid_database[n].argumentPerihelion = get_float(line + i, NULL) * M_PI / 180;
+
+        // Read longitude of ascending node -- radians; J2000.0
+        for (i = 137; (line[i] > '\0') && (line[i] <= ' '); i++);
+        asteroid_database[n].longAscNode = get_float(line + i, NULL) * M_PI / 180;
+
+        // Read inclination of orbit -- radians; J2000.0
+        for (i = 147; (line[i] > '\0') && (line[i] <= ' '); i++);
+        asteroid_database[n].inclination = get_float(line + i, NULL) * M_PI / 180;
+
+        // Read eccentricity of orbit -- dimensionless
+        for (i = 157; (line[i] > '\0') && (line[i] <= ' '); i++);
+        asteroid_database[n].eccentricity = get_float(line + i, NULL);
+
+        // Read semi-major axis of orbit -- AU
+        for (i = 168; (line[i] > '\0') && (line[i] <= ' '); i++);
+        asteroid_database[n].semiMajorAxis = get_float(line + i, NULL);
     }
     fclose(input);
 
@@ -494,16 +535,16 @@ void orbitalElements_asteroids_readAsciiData() {
     OrbitalElements_DumpBinaryData("dcfbinary.ast", asteroid_database, &asteroid_database_offset,
                                    asteroid_count, asteroid_secure_count);
 
-    // Make table indicating that we have loaded all of the orbital elements in this table
+    // Make table indicating that we have loaded all the orbital elements in this table
     asteroid_database_items_loaded = (unsigned char *) lt_malloc(asteroid_count * sizeof(unsigned char));
     memset(asteroid_database_items_loaded, 1, asteroid_count);
 
     // Open a file pointer to the file
     char filename_with_path[FNAME_LENGTH];
-    sprintf(filename_with_path, "%s/../data/%s", SRCDIR, "dcfbinary.ast");
+    snprintf(filename_with_path, FNAME_LENGTH, "%s/../data/%s", SRCDIR, "dcfbinary.ast");
     asteroid_database_file = fopen(filename_with_path, "rb");
+    snprintf(asteroid_database_filename, FNAME_LENGTH, "%s", filename_with_path);
 }
-
 
 
 //! orbitalElements_comets_readAsciiData - Read the comet orbital elements contained in the ASCII file downloaded
@@ -599,7 +640,6 @@ void orbitalElements_comets_readAsciiData() {
         while ((line[j] > ' ') && (k < 23)) comet_database[comet_count].name2[k++] = line[j++];
         comet_database[comet_count].name2[k] = '\0';
 
-
         // Read perihelion distance
         perihelion_dist = get_float(line + 31, NULL);
 
@@ -611,6 +651,7 @@ void orbitalElements_comets_readAsciiData() {
         for (j = 22; (line[j] > '\0') && (line[j] <= ' '); j++);
         const double perihelion_day = get_float(line + j, NULL);
 
+        // julian date
         perihelion_date = julian_day(perihelion_year, perihelion_month, (int) floor(perihelion_day),
                                      ((int) floor(perihelion_day * 24)) % 24,
                                      ((int) floor(perihelion_day * 24 * 60)) % 60,
@@ -621,19 +662,19 @@ void orbitalElements_comets_readAsciiData() {
         for (j = 41; (line[j] > '\0') && (line[j] <= ' '); j++);
         comet_database[comet_count].eccentricity = eccentricity = get_float(line + j, NULL);
 
-        // Read argument of perihelion
+        // Read argument of perihelion, radians, J2000.0
         for (j = 51; (line[j] > '\0') && (line[j] <= ' '); j++);
         comet_database[comet_count].argumentPerihelion = get_float(line + j, NULL) * M_PI / 180;
 
-        // Read longitude of ascending node
+        // Read longitude of ascending node, radians, J2000.0
         for (j = 61; (line[j] > '\0') && (line[j] <= ' '); j++);
         comet_database[comet_count].longAscNode = get_float(line + j, NULL) * M_PI / 180;
 
-        // Read orbital inclination
+        // Read orbital inclination, radians, J2000.0
         for (j = 71; (line[j] > '\0') && (line[j] <= ' '); j++);
         comet_database[comet_count].inclination = get_float(line + j, NULL) * M_PI / 180;
 
-        // Read epoch of osculation
+        // Read epoch of osculation, julian date
         for (j = 81; (line[j] > '\0') && (line[j] <= ' '); j++);
         tmp = get_float(line + j, NULL);
         comet_database[comet_count].epochOsculation = epoch = julian_day((int) floor(tmp / 10000),
@@ -654,11 +695,14 @@ void orbitalElements_comets_readAsciiData() {
 
         // Calculate derived quantities
         comet_database[comet_count].secureOrbit = 1;
+        // AU
         comet_database[comet_count].semiMajorAxis = a = perihelion_dist / (1 - eccentricity);
+        // radians; J2000.0
         comet_database[comet_count].meanAnomaly = fmod(
-                sqrt(GSL_CONST_MKSA_GRAVITATIONAL_CONSTANT * GSL_CONST_MKSA_SOLAR_MASS /
-                     gsl_pow_3(fabs(a) * GSL_CONST_MKSA_ASTRONOMICAL_UNIT)) * (epoch - perihelion_date) * 24 * 3600 +
+                sqrt(ORBIT_CONST_GM_SOLAR /
+                     gsl_pow_3(fabs(a) * ORBIT_CONST_ASTRONOMICAL_UNIT)) * (epoch - perihelion_date) * 24 * 3600 +
                 100 * M_PI, 2 * M_PI);
+        // julian date
         comet_database[comet_count].epochPerihelion = perihelion_date;
 
         // Increment the comet counter
@@ -680,14 +724,15 @@ void orbitalElements_comets_readAsciiData() {
     OrbitalElements_DumpBinaryData("dcfbinary.cmt", comet_database, &comet_database_offset,
                                    comet_count, comet_secure_count);
 
-    // Make table indicating that we have loaded all of the orbital elements in this table
+    // Make table indicating that we have loaded all the orbital elements in this table
     comet_database_items_loaded = (unsigned char *) lt_malloc(comet_count * sizeof(unsigned char));
     memset(comet_database_items_loaded, 1, comet_count);
 
     // Open a file pointer to the file
     char filename_with_path[FNAME_LENGTH];
-    sprintf(filename_with_path, "%s/../data/%s", SRCDIR, "dcfbinary.cmt");
+    snprintf(filename_with_path, FNAME_LENGTH, "%s/../data/%s", SRCDIR, "dcfbinary.cmt");
     comet_database_file = fopen(filename_with_path, "rb");
+    snprintf(comet_database_filename, FNAME_LENGTH, "%s", filename_with_path);
 }
 
 //! orbitalElements_planets_init - Make sure that planet orbital elements are initialised, in thread-safe fashion
@@ -715,7 +760,8 @@ orbitalElements *orbitalElements_planets_fetch(int index) {
         // If not, then read them from disk now
         long data_position_needed = planet_database_offset + index * sizeof(orbitalElements);
         fseek(planet_database_file, data_position_needed, SEEK_SET);
-        dcffread((void *) &planet_database[index], sizeof(orbitalElements), 1, planet_database_file);
+        dcf_fread((void *) &planet_database[index], sizeof(orbitalElements), 1, planet_database_file,
+                  planet_database_filename, __FILE__, __LINE__);
         planet_database_items_loaded[index] = 1;
     }
 
@@ -731,9 +777,9 @@ void orbitalElements_asteroids_init() {
     }
 }
 
-//! orbitalElements_asteroids_fetch - Fetch the orbitalElements record for bodyId (1000000 + index). If needed, load
+//! orbitalElements_asteroids_fetch - Fetch the orbitalElements record for bodyId (10000000 + index). If needed, load
 //! them from disk.
-//! \param index - The index of the object whose orbital elements are to be loaded (bodyId = 1000000 + index)
+//! \param index - The index of the object whose orbital elements are to be loaded (bodyId = 10000000 + index)
 //! \return - An orbitalElements structure for bodyId
 
 orbitalElements *orbitalElements_asteroids_fetch(int index) {
@@ -748,7 +794,8 @@ orbitalElements *orbitalElements_asteroids_fetch(int index) {
         // If not, then read them from disk now
         long data_position_needed = asteroid_database_offset + index * sizeof(orbitalElements);
         fseek(asteroid_database_file, data_position_needed, SEEK_SET);
-        dcffread((void *) &asteroid_database[index], sizeof(orbitalElements), 1, asteroid_database_file);
+        dcf_fread((void *) &asteroid_database[index], sizeof(orbitalElements), 1, asteroid_database_file,
+                  asteroid_database_filename, __FILE__, __LINE__);
         asteroid_database_items_loaded[index] = 1;
     }
 
@@ -764,9 +811,9 @@ void orbitalElements_comets_init() {
     }
 }
 
-//! orbitalElements_comets_fetch - Fetch the orbitalElements record for bodyId (2000000 + index). If needed, load
+//! orbitalElements_comets_fetch - Fetch the orbitalElements record for bodyId (20000000 + index). If needed, load
 //! them from disk.
-//! \param index - The index of the object whose orbital elements are to be loaded (bodyId = 2000000 + index)
+//! \param index - The index of the object whose orbital elements are to be loaded (bodyId = 20000000 + index)
 //! \return - An orbitalElements structure for bodyId
 
 orbitalElements *orbitalElements_comets_fetch(int index) {
@@ -781,29 +828,31 @@ orbitalElements *orbitalElements_comets_fetch(int index) {
         // If not, then read them from disk now
         long data_position_needed = comet_database_offset + index * sizeof(orbitalElements);
         fseek(comet_database_file, data_position_needed, SEEK_SET);
-        dcffread((void *) &comet_database[index], sizeof(orbitalElements), 1, comet_database_file);
+        dcf_fread((void *) &comet_database[index], sizeof(orbitalElements), 1, comet_database_file,
+                  comet_database_filename, __FILE__, __LINE__);
         comet_database_items_loaded[index] = 1;
     }
 
     return &comet_database[index];
 }
 
-//! orbitalElements_computeXYZ - Main orbital elements computer
+//! orbitalElements_computeXYZ - Main orbital elements computer. Return 3D position in ICRF, in AU, relative to the
+//! Sun (not the solar system barycentre!!). z-axis points towards the J2000.0 north celestial pole.
 //! \param [in] body_id - The id number of the object whose position is being queried
 //! \param [in] jd - The Julian day number at which the object's position is wanted; TT
-//! \param [out] x - The x position of the object relative to the centre of mass of the solar system (in AU; ICRF)
-//! \param [out] y - The x position of the object relative to the centre of mass of the solar system (in AU; ICRF)
-//! \param [out] z - The x position of the object relative to the centre of mass of the solar system (in AU; ICRF)
+//! \param [out] x - The x position of the object relative to the Sun (in AU; ICRF; points to RA=0)
+//! \param [out] y - The y position of the object relative to the Sun (in AU; ICRF; points to RA=6h)
+//! \param [out] z - The z position of the object relative to the Sun (in AU; ICRF; points to NCP)
 
 void orbitalElements_computeXYZ(int body_id, double jd, double *x, double *y, double *z) {
     orbitalElements *orbital_elements;
 
     double v, r;
 
-    const double epsilon = (23.4393 - 3.563E-7 * (jd - 2451544.5)) * M_PI / 180;
+    // const double epsilon = (23.4393 - 3.563E-7 * (jd - 2451544.5)) * M_PI / 180;
 
     // Case 1: Object is a planet
-    if (body_id < 1000000) {
+    if (body_id < 10000000) {
         // Planets occupy body numbers 1-19
         const int index = body_id;
 
@@ -820,9 +869,9 @@ void orbitalElements_computeXYZ(int body_id, double jd, double *x, double *y, do
     }
 
         // Case 2: Object is an asteroid
-    else if (body_id < 2000000) {
-        // Asteroids occupy body numbers 1e6 - 2e6
-        const int index = body_id - 1000000;
+    else if (body_id < 20000000) {
+        // Asteroids occupy body numbers 1e7 - 2e7
+        const int index = body_id - 10000000;
 
         orbitalElements_asteroids_init();
 
@@ -838,8 +887,8 @@ void orbitalElements_computeXYZ(int body_id, double jd, double *x, double *y, do
 
         // Case 3: Object is a comet
     else {
-        // Comets occupy body numbers 2e6 - 3e6
-        const int index = body_id - 2000000;
+        // Comets occupy body numbers 2e7 - 3e7
+        const int index = body_id - 20000000;
 
         orbitalElements_comets_init();
 
@@ -863,11 +912,20 @@ void orbitalElements_computeXYZ(int body_id, double jd, double *x, double *y, do
                                                              offset_from_epoch);
 
     // Mean Anomaly for desired epoch (convert rate of change per second into rate of change per day)
-    const double mean_motion = sqrt(GSL_CONST_MKSA_GRAVITATIONAL_CONSTANT * GSL_CONST_MKSA_SOLAR_MASS /
-                                    gsl_pow_3(fabs(a) * GSL_CONST_MKSA_ASTRONOMICAL_UNIT));
+    const double mean_motion = sqrt(ORBIT_CONST_GM_SOLAR /
+                                    gsl_pow_3(fabs(a) * ORBIT_CONST_ASTRONOMICAL_UNIT));
 
     const double M = orbital_elements->meanAnomaly +
                      (jd - orbital_elements->epochOsculation) * mean_motion * 24 * 3600;
+
+
+    // When debugging, show intermediate calculation
+    if (DEBUG) {
+        sprintf(temp_err_string, "Object ID = %d", body_id);
+        ephem_log(temp_err_string);
+        sprintf(temp_err_string, "JD = %.5f", jd);
+        ephem_log(temp_err_string);
+    }
 
     if (e > 1.02) {
         // Hyperbolic orbit
@@ -876,8 +934,12 @@ void orbitalElements_computeXYZ(int body_id, double jd, double *x, double *y, do
         const double M_hyperbolic = (jd - orbital_elements->epochPerihelion) * mean_motion * 24 * 3600;
 
         double F0, F1, ratio = 0.5;
+
+        // Initial guess
         F0 = M_hyperbolic;
-        for (int j = 0; ((j < 50) && (ratio > 1e-8)); j++) {
+
+        // Iteratively solve Kepler's equation
+        for (int j = 0; ((j < 100) && (ratio > 1e-12)); j++) {
             F1 = (M_hyperbolic + e * (F0 * cosh(F0) - sinh(F0))) / (e * cosh(F0) - 1); // Newton's method
             ratio = fabs(F1 / F0);
             if (ratio < 1) ratio = 1 / ratio;
@@ -885,18 +947,19 @@ void orbitalElements_computeXYZ(int body_id, double jd, double *x, double *y, do
             F0 = F1;
         }
 
-        v = 2 * atan(sqrt((e + 1) / (e - 1))) * tanh(F0 / 2);
+        v = 2 * atan(sqrt((e + 1) / (e - 1)) * tanh(F0 / 2));
         r = a * (1 - e * e) / (1 + e * cos(v));
     } else if (e < 0.98) {
-        double E0, E1, ratio = 0.5;
-        E0 = M + e * sin(M) * (1.0 + e * cos(M));
+        int j;
+        double E0, E1, delta_E = 1;
+        E0 = M + e * sin(M);
 
         // Iteratively solve inverse Kepler's equation for eccentric anomaly
-        for (int j = 0; ((j < 50) && (ratio > 1e-8)); j++) {
-            E1 = E0 + (M + e * sin(E0) - E0) / (1 - e * cos(E0)); // Newton's method
-            ratio = fabs(E1 / E0);
-            if (ratio < 1) ratio = 1 / ratio;
-            ratio -= 1;
+        for (j = 0; ((j < 100) && (fabs(delta_E) > 1e-12)); j++) {
+            // See Explanatory Supplement to the Astronomical Almanac, eq 8.37
+            const double delta_M = M - (E0 - e * sin(E0));
+            delta_E = delta_M / (1 - e * cos(E0));
+            E1 = E0 + delta_E;
             E0 = E1;
         }
 
@@ -905,6 +968,20 @@ void orbitalElements_computeXYZ(int body_id, double jd, double *x, double *y, do
 
         v = atan2(yv, xv);
         r = sqrt(gsl_pow_2(xv) + gsl_pow_2(yv));
+
+        // When debugging, show intermediate calculation
+        if (DEBUG) {
+            sprintf(temp_err_string, "E0 = %.10f deg", E0 * 180 / M_PI);
+            ephem_log(temp_err_string);
+            sprintf(temp_err_string, "delta_E = %.10e deg", delta_E * 180 / M_PI);
+            ephem_log(temp_err_string);
+            sprintf(temp_err_string, "xv = %.10f km", xv * ORBIT_CONST_ASTRONOMICAL_UNIT / 1e3);
+            ephem_log(temp_err_string);
+            sprintf(temp_err_string, "yv = %.10f km", yv * ORBIT_CONST_ASTRONOMICAL_UNIT / 1e3);
+            ephem_log(temp_err_string);
+            sprintf(temp_err_string, "j = %d iterations", j);
+            ephem_log(temp_err_string);
+        }
     } else {
         // Near-parabolic orbit
         // See <https://stjarnhimlen.se/comp/ppcomp.html> section 19
@@ -926,35 +1003,93 @@ void orbitalElements_computeXYZ(int body_id, double jd, double *x, double *y, do
         r = q * (1 + gsl_pow_2(w)) / (1 + gsl_pow_2(w) * F);
     }
 
-    // Sun-centred ecliptic coordinates
-    const double xh = r * (cos(N) * cos(v + w) - sin(N) * sin(v + w) * cos(inc));
-    const double yh = r * (sin(N) * cos(v + w) + cos(N) * sin(v + w) * cos(inc));
-    const double zh = r * (sin(v + w) * sin(inc));
+    // Position of object relative to the Sun, in ecliptic coordinates (Eq 8.34)
+    const double xh_j2000 = r * (cos(N) * cos(v + w) - sin(N) * sin(v + w) * cos(inc));
+    const double yh_j2000 = r * (sin(N) * cos(v + w) + cos(N) * sin(v + w) * cos(inc));
+    const double zh_j2000 = r * (sin(v + w) * sin(inc));
 
-    // Rotate ecliptic coordinates for the precession of the equinoxes
-    const double lon_corr = -3.82394e-5 * (jd - 2451545.) * M_PI / 180;
+    // Inclination of the ecliptic at J2000.0 epoch
+    const double epsilon = 23.4392794444 * M_PI / 180;
 
-    const double xh_j2000 = xh * cos(lon_corr) + yh * sin(lon_corr);
-    const double yh_j2000 = -xh * sin(lon_corr) + yh * cos(lon_corr);
-    const double zh_j2000 = zh;
-
-    // Sun-centred RA/Dec coordinates
+    // Transfer ecliptic coordinates (relative to Sun) into J2000.0 coordinates (i.e. ICRF)
     *x = xh_j2000;
     *y = yh_j2000 * cos(epsilon) - zh_j2000 * sin(epsilon);
     *z = yh_j2000 * sin(epsilon) + zh_j2000 * cos(epsilon);
+
+    // When debugging, show intermediate calculation
+    if (DEBUG) {
+        sprintf(temp_err_string, "a = %.10e km", a * ORBIT_CONST_ASTRONOMICAL_UNIT / 1e3);
+        ephem_log(temp_err_string);
+        sprintf(temp_err_string, "e = %.10f", e);
+        ephem_log(temp_err_string);
+        sprintf(temp_err_string, "N = %.10f deg", N * 180 / M_PI);
+        ephem_log(temp_err_string);
+        sprintf(temp_err_string, "inc = %.10f deg", inc * 180 / M_PI);
+        ephem_log(temp_err_string);
+        sprintf(temp_err_string, "w = %.10f deg", w * 180 / M_PI);
+        ephem_log(temp_err_string);
+        sprintf(temp_err_string, "mean_motion = %.10e deg/sec", mean_motion * 180 / M_PI);
+        ephem_log(temp_err_string);
+        sprintf(temp_err_string, "M = %.10f deg (mean anomaly)", M * 180 / M_PI);
+        ephem_log(temp_err_string);
+        sprintf(temp_err_string, "v = %.10f deg", v * 180 / M_PI);
+        ephem_log(temp_err_string);
+        sprintf(temp_err_string, "r = %.10f km", r * ORBIT_CONST_ASTRONOMICAL_UNIT / 1e3);
+        ephem_log(temp_err_string);
+    }
 }
 
-void orbitalElements_computeEphemeris(settings *i, int bodyId, double jd, double *x, double *y, double *z, double *ra,
+//! orbitalElements_computeEphemeris - Main entry point for estimating the position, brightness, etc of an object at
+//! a particular time, using orbital elements.
+//! \param [in] bodyId - The object ID number we want to query. 0=Mercury. 2=Earth/Moon barycentre. 9=Pluto. 10=Sun, etc
+//! \param [in] jd - The Julian date to query; TT
+//! \param [out] x - x,y,z position of body, in ICRF v2, in AU, relative to solar system barycentre.
+//! \param [out] y - x points to RA=0. y points to RA=6h.
+//! \param [out] z - z points to celestial north pole (i.e. J2000.0).
+//! \param [out] ra - Right ascension of the object (J2000.0, radians, relative to geocentre)
+//! \param [out] dec - Declination of the object (J2000.0, radians, relative to geocentre)
+//! \param [out] mag - Estimated V-band magnitude of the object
+//! \param [out] phase - Phase of the object (0-1)
+//! \param [out] angSize - Angular size of the object (diameter; arcseconds)
+//! \param [out] phySize - Physical size of the object (diameter; metres)
+//! \param [out] albedo - Albedo of the object (0-1)
+//! \param [out] sunDist - Distance of the object from the Sun (AU)
+//! \param [out] earthDist - Distance of the object from the Earth (AU)
+//! \param [out] sunAngDist - Angular distance of the object from the Sun, as seen from the Earth (radians)
+//! \param [out] theta_ESO - Angular distance of the object from the Earth, as seen from the Sun (radians)
+//! \param [out] eclipticLongitude - The ecliptic longitude of the object (J2000.0 radians)
+//! \param [out] eclipticLatitude - The ecliptic latitude of the object (J2000.0 radians)
+//! \param [out] eclipticDistance - The separation of the object from the Sun, in ecliptic longitude (radians)
+//! \param [in] ra_dec_epoch - The epoch of the RA/Dec coordinates to output. Supply 2451545.0 for J2000.0.
+//! \param [in] do_topocentric_correction - Boolean indicating whether to apply topocentric correction to (ra, dec)
+//! \param [in] topocentric_latitude - Latitude (deg) of observer on Earth, if topocentric correction is applied.
+//! \param [in] topocentric_longitude - Longitude (deg) of observer on Earth, if topocentric correction is applied.
+
+void orbitalElements_computeEphemeris(int bodyId, const double jd, double *x, double *y, double *z, double *ra,
                                       double *dec, double *mag, double *phase, double *angSize, double *phySize,
                                       double *albedo, double *sunDist, double *earthDist, double *sunAngDist,
                                       double *theta_eso, double *eclipticLongitude, double *eclipticLatitude,
-                                      double *eclipticDistance) {
+                                      double *eclipticDistance, const double ra_dec_epoch,
+                                      const int do_topocentric_correction,
+                                      const double topocentric_latitude, const double topocentric_longitude) {
+    // Position of the Sun relative to the solar system barycentre, J2000.0 equatorial coordinates, AU
     double sun_pos_x, sun_pos_y, sun_pos_z;
-    double EMX, EMY, EMZ; // Position of the Earth-Moon centre of mass
+
+    // Position of the Earth-Moon barycentre, relative to the solar system barycentre, AU
+    double EMX, EMY, EMZ;
+
+    // Moon's position relative to the Earth-Moon barycentre, AU
     double moon_pos_x, moon_pos_y, moon_pos_z;
+
+    // Earth's position relative to the solar system barycentre, J2000.0 equatorial coordinates, AU
     double earth_pos_x, earth_pos_y, earth_pos_z;
 
+    // Boolean flags indicating whether this is the Earth, Sun or Moon (which need special treatment)
     int is_moon = 0, is_earth = 0, is_sun = 0;
+
+    double EMX_future, EMY_future, EMZ_future; // Position of the Earth-Moon centre of mass
+    double moon_pos_x_future, moon_pos_y_future, moon_pos_z_future;
+    double earth_pos_x_future, earth_pos_y_future, earth_pos_z_future;
 
     // Earth: Need to convert from Earth/Moon barycentre to geocentre
     if (bodyId == 19) {
@@ -973,13 +1108,12 @@ void orbitalElements_computeEphemeris(settings *i, int bodyId, double jd, double
     }
 
     // Look up position of the Earth at this JD, so that we can convert XYZ coordinates relative to Sun into
-    // RA and Dec as observed from the Earth
-    const double earth_mass = 5.9736e24;
-    const double moon_mass = 7.3477e22;
+    // RA and Dec as observed from the Earth.
+    // Below are values of GM3 and GMM from DE405. See
+    // <https://web.archive.org/web/20120220062549/http://iau-comm4.jpl.nasa.gov/de405iom/de405iom.pdf>
+    const double earth_mass = 0.8887692390113509e-9;
+    const double moon_mass = 0.1093189565989898e-10;
     const double moon_earth_mass_ratio = moon_mass / (moon_mass + earth_mass);
-
-    // Look up the Sun's position
-    jpl_computeXYZ(10, jd, &sun_pos_x, &sun_pos_y, &sun_pos_z);
 
     // Look up the Earth-Moon centre of mass position
     jpl_computeXYZ(2, jd, &EMX, &EMY, &EMZ);
@@ -992,6 +1126,20 @@ void orbitalElements_computeEphemeris(settings *i, int bodyId, double jd, double
     earth_pos_y = EMY - moon_earth_mass_ratio * moon_pos_y;
     earth_pos_z = EMZ - moon_earth_mass_ratio * moon_pos_z;
 
+    // Look up the Sun's position, taking light travel time into account
+    {
+        jpl_computeXYZ(10, jd, &sun_pos_x, &sun_pos_y, &sun_pos_z);
+
+        // Calculate light travel time
+        const double distance = gsl_hypot3(sun_pos_x - earth_pos_x,
+                                           sun_pos_y - earth_pos_y,
+                                           sun_pos_z - earth_pos_z);  // AU
+        const double light_travel_time = distance * ORBIT_CONST_ASTRONOMICAL_UNIT / ORBIT_CONST_SPEED_OF_LIGHT;
+
+        // Look up position of requested object at the time the light left the object
+        jpl_computeXYZ(10, jd - light_travel_time / 86400, &sun_pos_x, &sun_pos_y, &sun_pos_z);
+    }
+
     // If the user's query was about the Earth, we already know its position
     if (is_earth) {
         *x = earth_pos_x;
@@ -999,36 +1147,96 @@ void orbitalElements_computeEphemeris(settings *i, int bodyId, double jd, double
         *z = earth_pos_z;
     }
 
-        // If the user's query was about the Sun, we already know that position too!
+        // If the user's query was about the Sun, we already know that position too
     else if (is_sun) {
         *x = sun_pos_x;
         *y = sun_pos_y;
         *z = sun_pos_z;
     }
 
-        // If the user's query was about the Moon, we already know that position too!
+        // If the user's query was about the Moon, we already know that position too
     else if (is_moon) {
-        *x = moon_pos_x;
-        *y = moon_pos_y;
-        *z = moon_pos_z;
+        *x = moon_pos_x + earth_pos_x;
+        *y = moon_pos_y + earth_pos_y;
+        *z = moon_pos_z + earth_pos_z;
     }
 
-        // otherwise we need to use the orbital elements for the particular object the user was looking for
+        // Otherwise we need to use the orbital elements for the particular object the user was looking for,
+        // taking light travel time into account
     else {
-        orbitalElements_computeXYZ(bodyId, jd, x, y, z);
+        double x_from_sun, y_from_sun, z_from_sun;
+
+        // Calculate position of requested object at specified time (relative to Sun)
+        orbitalElements_computeXYZ(bodyId, jd, &x_from_sun, &y_from_sun, &z_from_sun);
+
+        // Convert to barycentric coordinates (to match DE430's coordinate system)
+        const double x_barycentric_0 = x_from_sun + sun_pos_x;
+        const double y_barycentric_0 = y_from_sun + sun_pos_y;
+        const double z_barycentric_0 = z_from_sun + sun_pos_z;
+
+        // Calculate light travel time
+        const double distance = gsl_hypot3(x_barycentric_0 - earth_pos_x,
+                                           y_barycentric_0 - earth_pos_y,
+                                           z_barycentric_0 - earth_pos_z);  // AU
+        const double light_travel_time = distance * ORBIT_CONST_ASTRONOMICAL_UNIT / ORBIT_CONST_SPEED_OF_LIGHT;
+
+        // Look up position of requested object at the time the light left the object
+        orbitalElements_computeXYZ(bodyId, jd - light_travel_time / 86400,
+                                   &x_from_sun, &y_from_sun, &z_from_sun);
+        const double x_barycentric_1 = x_from_sun + sun_pos_x;
+        const double y_barycentric_1 = y_from_sun + sun_pos_y;
+        const double z_barycentric_1 = z_from_sun + sun_pos_z;
+
+        // Store result
+        *x = x_barycentric_1;
+        *y = y_barycentric_1;
+        *z = z_barycentric_1;
     }
 
-    // If the body was the Moon, don't forget the add the position of the Earth-Moon centre of mass
-    if (is_moon) {
-        *x += earth_pos_x;
-        *y += earth_pos_y;
-        *z += earth_pos_z;
+    // Look up the Earth-Moon centre of mass position, a short time in the future
+    // We use this to calculate the Earth's velocity vector, which is needed to correct for aberration
+    // (see eqn 7.119 of the Explanatory Supplement)
+    const double eb_dot_timestep = 1e-6; // days
+    const double eb_dot_timestep_sec = eb_dot_timestep * 86400;
+    jpl_computeXYZ(2, jd + eb_dot_timestep, &EMX_future, &EMY_future, &EMZ_future);
+    jpl_computeXYZ(9, jd + eb_dot_timestep, &moon_pos_x_future, &moon_pos_y_future, &moon_pos_z_future);
+    earth_pos_x_future = EMX_future - moon_earth_mass_ratio * moon_pos_x_future;
+    earth_pos_y_future = EMY_future - moon_earth_mass_ratio * moon_pos_y_future;
+    earth_pos_z_future = EMZ_future - moon_earth_mass_ratio * moon_pos_z_future;
+
+    // Equation (7.118) of the Explanatory Supplement - correct for aberration
+    if (!is_earth) {
+        const double u1[3] = {
+                *x - earth_pos_x,
+                *y - earth_pos_y,
+                *z - earth_pos_z
+        };
+        const double u1_mag = gsl_hypot3(u1[0], u1[1], u1[2]);
+        const double u[3] = {u1[0] / u1_mag, u1[1] / u1_mag, u1[2] / u1_mag};
+        const double eb_dot[3] = {
+                earth_pos_x_future - earth_pos_x,
+                earth_pos_y_future - earth_pos_y,
+                earth_pos_z_future - earth_pos_z
+        };
+
+        // Speed of light in AU per time step
+        const double c = ORBIT_CONST_SPEED_OF_LIGHT / ORBIT_CONST_ASTRONOMICAL_UNIT * eb_dot_timestep_sec;
+        const double V[3] = {eb_dot[0] / c, eb_dot[1] / c, eb_dot[2] / c};
+        const double V_mag = gsl_hypot3(V[0], V[1], V[2]);
+        const double beta = sqrt(1 - gsl_pow_2(V_mag));
+        const double f1 = u[0] * V[0] + u[1] * V[1] + u[2] * V[2];
+        const double f2 = 1 + f1 / (1 + beta);
+
+        // Correct for aberration
+        *x = earth_pos_x + (beta * u1[0] + f2 * u1_mag * V[0]) / (1 + f1);
+        *y = earth_pos_y + (beta * u1[1] + f2 * u1_mag * V[1]) / (1 + f1);
+        *z = earth_pos_z + (beta * u1[2] + f2 * u1_mag * V[2]) / (1 + f1);
     }
 
     // Populate other quantities, like the brightness, RA and Dec of the object, based on its XYZ position
     magnitudeEstimate(bodyId, *x, *y, *z, earth_pos_x, earth_pos_y, earth_pos_z, sun_pos_x, sun_pos_y, sun_pos_z, ra,
                       dec, mag, phase, angSize, phySize,
                       albedo, sunDist, earthDist, sunAngDist, theta_eso, eclipticLongitude, eclipticLatitude,
-                      eclipticDistance, i);
+                      eclipticDistance, ra_dec_epoch, jd,
+                      do_topocentric_correction, topocentric_latitude, topocentric_longitude);
 }
-

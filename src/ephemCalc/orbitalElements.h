@@ -1,7 +1,7 @@
 // orbitalElements.h
 // 
 // -------------------------------------------------
-// Copyright 2015-2020 Dominic Ford
+// Copyright 2015-2025 Dominic Ford
 //
 // This file is part of EphemerisCompute.
 //
@@ -22,25 +22,25 @@
 #ifndef ORBITALELEMENTS_H
 #define ORBITALELEMENTS_H 1
 
-#include "settings/settings.h"
+#include "coreUtils/strConstants.h"
 
 #define MAX_ASTEROIDS 1500000
-#define MAX_COMETS     100000
+#define MAX_COMETS     200000
 #define MAX_PLANETS        50
 
 typedef struct {
     char name[24], name2[24];
-    int number;  // bodyId for planets; bodyId-1000000 for asteroids; bodyId-2000000 for comets
+    int number;  // bodyId for planets; bodyId-10000000 for asteroids; bodyId-20000000 for comets
     int secureOrbit;  // boolean flag indicating whether orbit is deemed secure
-    double epochOsculation;  // Julian day number
-    double epochPerihelion;  // Julian day number
+    double epochOsculation;  // Julian date
+    double epochPerihelion;  // Julian date
     double absoluteMag;  // Absolute magnitude H
     double meanAnomaly;  // mean anomaly at epoch of osculation; radians
-    double argumentPerihelion;  // argument of perihelion at epoch of osculation; radians
+    double argumentPerihelion;  // argument of perihelion at epoch of osculation; radians; J2000.0
     double argumentPerihelion_dot;  // rate of change; radians per day
-    double longAscNode;  // longitude of ascending node; radians
+    double longAscNode;  // longitude of ascending node; radians; J2000.0
     double longAscNode_dot;  // rate of change; radians per day
-    double inclination;  // radians
+    double inclination;  // radians; J2000.0
     double inclination_dot;  // rate of change; radians per day
     double eccentricity;
     double eccentricity_dot; // rate of change; per day
@@ -54,6 +54,11 @@ typedef struct {
 extern FILE *planet_database_file;
 extern FILE *asteroid_database_file;
 extern FILE *comet_database_file;
+
+// Filenames of binary files
+extern char planet_database_filename[FNAME_LENGTH];
+extern char asteroid_database_filename[FNAME_LENGTH];
+extern char comet_database_filename[FNAME_LENGTH];
 
 // Blocks of memory used to hold the orbital elements
 extern orbitalElements *planet_database;
@@ -95,10 +100,12 @@ orbitalElements *orbitalElements_comets_fetch(int index);
 
 void orbitalElements_computeXYZ(int body_id, double jd, double *x, double *y, double *z);
 
-void orbitalElements_computeEphemeris(settings *i, int bodyId, double jd, double *x, double *y, double *z, double *ra,
+void orbitalElements_computeEphemeris(int bodyId, double jd, double *x, double *y, double *z, double *ra,
                                       double *dec, double *mag, double *phase, double *angSize, double *phySize,
                                       double *albedo, double *sunDist, double *earthDist, double *sunAngDist,
                                       double *theta_eso, double *eclipticLongitude, double *eclipticLatitude,
-                                      double *eclipticDistance);
+                                      double *eclipticDistance, double ra_dec_epoch,
+                                      int do_topocentric_correction,
+                                      double topocentric_latitude, double topocentric_longitude);
 
 #endif

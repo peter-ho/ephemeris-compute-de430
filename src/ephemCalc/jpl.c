@@ -1,7 +1,7 @@
 // jpl.c
 // 
 // -------------------------------------------------
-// Copyright 2015-2020 Dominic Ford
+// Copyright 2015-2025 Dominic Ford
 //
 // This file is part of EphemerisCompute.
 //
@@ -25,6 +25,7 @@
 #include <string.h>
 
 #include <gsl/gsl_math.h>
+#include <gsl/gsl_const_mksa.h>
 
 #include "coreUtils/asciiDouble.h"
 #include "coreUtils/errorReport.h"
@@ -32,8 +33,6 @@
 
 #include "listTools/ltDict.h"
 #include "listTools/ltMemory.h"
-
-#include "settings/settings.h"
 
 #include "jpl.h"
 #include "orbitalElements.h"
@@ -62,6 +61,7 @@ static int JPL_EphemArrayRecords = 0; // The number of blocks needed to go from 
 
 static int JPL_EphemData_offset = -1; // The offset of the start of the ephmeris binary data from the start of the binary file
 static FILE *JPL_EphemFile = NULL; // File pointer used to read binary data from DE430 (we don't read whole binary ephemeris into memory)
+static char jpl_ephem_filename[FNAME_LENGTH];  // File name of binary ephemeris file
 
 static double *JPL_EphemData = NULL; // Buffer to hold the ephemeris data, as we load it
 static unsigned char *JPL_EphemData_items_loaded = NULL; // Record of which ephemeris data records we have loaded
@@ -77,42 +77,43 @@ int JPL_ReadBinaryData() {
 
     // Work out the filename of the binary file that we are to open
     snprintf(fname, FNAME_LENGTH, "%s/../data/dcfbinary.%d", SRCDIR, JPL_EphemNumber);
+    snprintf(jpl_ephem_filename, FNAME_LENGTH, "%s", fname);
     if (DEBUG) {
         snprintf(temp_err_string, FNAME_LENGTH, "Trying to fetch binary data from file <%s>.", fname);
         ephem_log(temp_err_string);
     }
 
     // Open binary data
-    JPL_EphemFile = fopen(fname, "r");
+    JPL_EphemFile = fopen(fname, "rb");
     if (JPL_EphemFile == NULL) return 1; // Failed to open binary file
 
     // Read headers to binary file
-    dcffread((void *) &JPL_EphemStart, sizeof(double), 1, JPL_EphemFile);
+    dcf_fread((void *) &JPL_EphemStart, sizeof(double), 1, JPL_EphemFile, fname, __FILE__, __LINE__);
     if (DEBUG) {
         snprintf(temp_err_string, FNAME_LENGTH, "JPL_EphemStart        = %10f", JPL_EphemStart);
         ephem_log(temp_err_string);
     }
-    dcffread((void *) &JPL_EphemEnd, sizeof(double), 1, JPL_EphemFile);
+    dcf_fread((void *) &JPL_EphemEnd, sizeof(double), 1, JPL_EphemFile, fname, __FILE__, __LINE__);
     if (DEBUG) {
         snprintf(temp_err_string, FNAME_LENGTH, "JPL_EphemEnd          = %10f", JPL_EphemEnd);
         ephem_log(temp_err_string);
     }
-    dcffread((void *) &JPL_EphemStep, sizeof(double), 1, JPL_EphemFile);
+    dcf_fread((void *) &JPL_EphemStep, sizeof(double), 1, JPL_EphemFile, fname, __FILE__, __LINE__);
     if (DEBUG) {
         snprintf(temp_err_string, FNAME_LENGTH, "JPL_EphemStep         = %10f", JPL_EphemStep);
         ephem_log(temp_err_string);
     }
-    dcffread((void *) &JPL_AU, sizeof(double), 1, JPL_EphemFile);
+    dcf_fread((void *) &JPL_AU, sizeof(double), 1, JPL_EphemFile, fname, __FILE__, __LINE__);
     if (DEBUG) {
         snprintf(temp_err_string, FNAME_LENGTH, "JPL_AU                = %10f", JPL_AU);
         ephem_log(temp_err_string);
     }
-    dcffread((void *) &JPL_EphemArrayLen, sizeof(int), 1, JPL_EphemFile);
+    dcf_fread((void *) &JPL_EphemArrayLen, sizeof(int), 1, JPL_EphemFile, fname, __FILE__, __LINE__);
     if (DEBUG) {
         snprintf(temp_err_string, FNAME_LENGTH, "JPL_EphemArrayLen     = %10d", JPL_EphemArrayLen);
         ephem_log(temp_err_string);
     }
-    dcffread((void *) &JPL_EphemArrayRecords, sizeof(int), 1, JPL_EphemFile);
+    dcf_fread((void *) &JPL_EphemArrayRecords, sizeof(int), 1, JPL_EphemFile, fname, __FILE__, __LINE__);
     if (DEBUG) {
         snprintf(temp_err_string, FNAME_LENGTH, "JPL_EphemArrayRecords = %10d", JPL_EphemArrayRecords);
         ephem_log(temp_err_string);
@@ -125,10 +126,10 @@ int JPL_ReadBinaryData() {
     }
 
     // Read shape data array
-    dcffread((void *) JPL_ShapeData, sizeof(int), 13 * 3, JPL_EphemFile);
+    dcf_fread((void *) JPL_ShapeData, sizeof(int), 13 * 3, JPL_EphemFile, fname, __FILE__, __LINE__);
 
     // We have now reached the actual ephemeris data. We don't load this into RAM since it is large and this would
-    // take time. Instead store a pointer to the offset of the start of the ephemeris from the beginning of file.
+    // take time. Instead, store a pointer to the offset of the start of the ephemeris from the beginning of file.
     JPL_EphemData_offset = (int) ftell(JPL_EphemFile);
 
     // Allocate memory to use to store ephemeris, as we load it
@@ -179,7 +180,8 @@ void JPL_DumpBinaryData() {
 //! jpl_readData - Read the data contained in the original DE430 files
 
 void jpl_readAsciiData() {
-    char fname[FNAME_LENGTH], line[FNAME_LENGTH], *lineptr, key[FNAME_LENGTH];
+    char fname[FNAME_LENGTH], line[FNAME_LENGTH], key[FNAME_LENGTH];
+    const char *line_ptr;
 
     FILE *input = NULL;  // The ASCII file we are reading the ephemeris from
     int year = -1;  // The year number in the filename of the ephemeris file we are reading (advances in 20 year steps)
@@ -201,7 +203,7 @@ void jpl_readAsciiData() {
 
     // Logging message to report that we are parsing the DE430 files
     if (DEBUG) {
-        snprintf(temp_err_string, FNAME_LENGTH, "Beginning to read JPL epemeris DE%d.", JPL_EphemNumber);
+        snprintf(temp_err_string, FNAME_LENGTH, "Beginning to read JPL ephemeris DE%d.", JPL_EphemNumber);
         ephem_log(temp_err_string);
     }
 
@@ -228,7 +230,7 @@ void jpl_readAsciiData() {
             }
 
             // Open the file -- first time around the header files; subsequently, the ephemeris itself
-            input = fopen(fname, "r");
+            input = fopen(fname, "rt");
             if (input == NULL) {
                 ephem_fatal(__FILE__, __LINE__, "Could not open ephemeris file.");
                 exit(1);
@@ -249,12 +251,12 @@ void jpl_readAsciiData() {
         // The first line of the header file contains the length of the records in the ephemeris files (NCOEFF=...)
         if (strncmp(line, "KSIZE=", 5) == 0) {
             //KSIZE =
-            lineptr = next_word(line);
-            lineptr = next_word(lineptr);
+            line_ptr = next_word(line);
+            line_ptr = next_word(line_ptr);
 
             //NCOEFF =
-            lineptr = next_word(lineptr);
-            JPL_EphemArrayLen = (int) get_float(lineptr, NULL) + 2; // Two extra floats are JD limits of time step
+            line_ptr = next_word(line_ptr);
+            JPL_EphemArrayLen = (int) get_float(line_ptr, NULL) + 2; // Two extra floats are JD limits of time step
             if (DEBUG) {
                 snprintf(temp_err_string, FNAME_LENGTH, "Each record of length %d floats.", JPL_EphemArrayLen);
                 ephem_log(temp_err_string);
@@ -267,8 +269,8 @@ void jpl_readAsciiData() {
             first = 1;  // This is the first line of this group
             pos = 0;
             count = 0;
-            lineptr = next_word(line);
-            state = (int) get_float(lineptr, NULL);  // Set state to the new GROUP number
+            line_ptr = next_word(line);
+            state = (int) get_float(line_ptr, NULL);  // Set state to the new GROUP number
             if (DEBUG) {
                 snprintf(temp_err_string, FNAME_LENGTH, "Entering GROUP %d.", state);
                 ephem_log(temp_err_string);
@@ -326,10 +328,10 @@ void jpl_readAsciiData() {
         } else if (state == 1030) {
             // Group 1030 has three numbers: the start and end Julian day numbers, and the step size (32 days)
             JPL_EphemStart = get_float(line, NULL);
-            lineptr = next_word(line);
-            JPL_EphemEnd = get_float(lineptr, NULL);
-            lineptr = next_word(lineptr);
-            JPL_EphemStep = get_float(lineptr, NULL);
+            line_ptr = next_word(line);
+            JPL_EphemEnd = get_float(line_ptr, NULL);
+            line_ptr = next_word(line_ptr);
+            JPL_EphemStep = get_float(line_ptr, NULL);
             if (DEBUG) {
                 snprintf(temp_err_string, FNAME_LENGTH, "Ephemeris spans from %.1f to %.1f; stepsize %.1f.",
                          JPL_EphemStart, JPL_EphemEnd, JPL_EphemStep);
@@ -355,16 +357,16 @@ void jpl_readAsciiData() {
             }
 
             // Subsequent lines list the names of the variables in turn
-            lineptr = line;
-            while (lineptr[0] != '\0') {
+            line_ptr = line;
+            while (line_ptr[0] != '\0') {
                 if (pos >= var_dict_len) {
                     ephem_fatal(__FILE__, __LINE__, "Variable dictionary overflow.");
                     exit(1);
                 }
-                for (i = 0; lineptr[i] > ' '; i++) key[i] = lineptr[i];
+                for (i = 0; line_ptr[i] > ' '; i++) key[i] = line_ptr[i];
                 key[i] = '\0';
                 dictAppendPtr(JPL_EphemVars, key, var_val + (pos++), 0, 0, DATATYPE_VOID);
-                lineptr = next_word(lineptr);
+                line_ptr = next_word(line_ptr);
             }
         } else if (state == 1041) {
             // Group 1041 has a list of the values of the variables which are set within the header
@@ -381,13 +383,13 @@ void jpl_readAsciiData() {
             }
 
             // Each subsequent line defines the whitespace separated values of some variables
-            lineptr = line;
-            while (lineptr[0] != '\0') {
+            line_ptr = line;
+            while (line_ptr[0] != '\0') {
                 if (pos >= var_dict_len) {
                     // Skip final terminating zero
-                    double value = get_float(lineptr, NULL);
+                    double value = get_float(line_ptr, NULL);
                     if (value == 0) {
-                        lineptr = next_word(lineptr);
+                        line_ptr = next_word(line_ptr);
                         continue;
                     }
 
@@ -395,13 +397,13 @@ void jpl_readAsciiData() {
                     ephem_fatal(__FILE__, __LINE__, "Variable dictionary overflow.");
                     exit(1);
                 }
-                var_val[pos++] = get_float(lineptr, NULL);
-                lineptr = next_word(lineptr);
+                var_val[pos++] = get_float(line_ptr, NULL);
+                line_ptr = next_word(line_ptr);
             }
         } else if (state == 1050) {
             // GROUP 1050 defines a 13x3 shape array, which we store in <JPL_ShapeData>
-            lineptr = line;
-            for (i = 0; lineptr[0] != '\0'; i++) {
+            line_ptr = line;
+            for (i = 0; line_ptr[0] != '\0'; i++) {
                 if (i >= 13) {
                     ephem_fatal(__FILE__, __LINE__, "Shape array horizontal overflow.");
                     exit(1);
@@ -410,8 +412,8 @@ void jpl_readAsciiData() {
                     ephem_fatal(__FILE__, __LINE__, "Shape array vertical overflow.");
                     exit(1);
                 }
-                JPL_ShapeData[pos + 3 * i] = (int) get_float(lineptr, NULL);
-                lineptr = next_word(lineptr);
+                JPL_ShapeData[pos + 3 * i] = (int) get_float(line_ptr, NULL);
+                line_ptr = next_word(line_ptr);
             }
             pos++;
         } else if (state == 1070) {
@@ -423,8 +425,8 @@ void jpl_readAsciiData() {
             // The following two items within each block are jd_min and jd_max
 
             // Loop over the words on each line of the ephemeris
-            lineptr = line;
-            while (lineptr[0] != '\0') {
+            line_ptr = line;
+            while (line_ptr[0] != '\0') {
                 if (count == 2) {
                     // Once we have read two items from the ephemeris, we have the min and max JD for the first block
                     // Set the variable jd_min for the current block
@@ -465,7 +467,7 @@ void jpl_readAsciiData() {
                 }
 
                 // Read the floating point numbers from the text file into a big array
-                if (!ignore) JPL_EphemData[pos++] = get_float(lineptr, NULL);
+                if (!ignore) JPL_EphemData[pos++] = get_float(line_ptr, NULL);
 
                 // if (DEBUG) {
                 //  if ((pos % JPL_EphemArrayLen) == 2) {
@@ -476,7 +478,7 @@ void jpl_readAsciiData() {
                 //  }
 
                 // Proceed to the next word
-                lineptr = next_word(lineptr);
+                line_ptr = next_word(line_ptr);
 
                 // Count the number of words we have read
                 count++;
@@ -528,12 +530,12 @@ double chebyshev(double *coeffs, int Ncoeff, double x) {
     return x * d - dd + coeffs[0];
 }
 
-//! jpl_computeXYZ - Evaluate the 3D position of a solar system body at Julian day number JD
+//! jpl_computeXYZ - Evaluate the 3D position of a solar system body at Julian date JD (in ICRF v2 as used by DE430)
 //! \param [in] body_id - The body's index within DE430 (0 Sun - 12 Pluto)
 //! \param [in] jd - Julian day number; TT
 //! \param [out] x - Cartesian position of body (AU). This axis points away from RA=0.
 //! \param [out] y - Cartesian position of body (AU).
-//! \param [out] z - Cartesian position of body (AU). This axis points towards north ecliptic pole
+//! \param [out] z - Cartesian position of body (AU). This axis points towards J2000.0 north celestial pole
 
 void jpl_computeXYZ(int body_id, double jd, double *x, double *y, double *z) {
     int record_index, i;
@@ -565,8 +567,9 @@ void jpl_computeXYZ(int body_id, double jd, double *x, double *y, double *z) {
 #pragma omp critical (jpl_fetch)
         {
             fseek(JPL_EphemFile, data_position_needed, SEEK_SET);
-            dcffread((void *) &JPL_EphemData[record_index * JPL_EphemArrayLen],
-                     sizeof(double), JPL_EphemArrayLen, JPL_EphemFile);
+            dcf_fread((void *) &JPL_EphemData[record_index * JPL_EphemArrayLen],
+                      sizeof(double), JPL_EphemArrayLen, JPL_EphemFile,
+                      jpl_ephem_filename, __FILE__, __LINE__);
             JPL_EphemData_items_loaded[record_index] = 1;
         }
     }
@@ -627,38 +630,54 @@ void jpl_computeXYZ(int body_id, double jd, double *x, double *y, double *z) {
 
 //! jpl_computeEphemeris - Main entry point for estimating the position, brightness, etc of an object at a particular
 //! time, using data from the DE430 ephemeris.
-//! \param [in] i - Global settings used by ephemerisCompute
 //! \param [in] bodyId - The object ID number we want to query. 0=Mercury. 2=Earth/Moon barycentre. 9=Pluto. 10=Sun, etc
-//! \param [in] jd - The Julian Day number to query; TT
-//! \param [out] x - x,y,z position of body, in AU relative to solar system barycentre.
-//! \param [out] y - negative x points to vernal equinox. z points to celestial north pole (i.e. J2000.0).
-//! \param [out] z
-//! \param [out] ra - Right ascension of the object
-//! \param [out] dec - Declination of the object
+//! \param [in] jd - The Julian date to query; TT
+//! \param [out] x - x,y,z position of body, in ICRF v2, in AU, relative to solar system barycentre.
+//! \param [out] y - x points to RA=0. y points to RA=6h.
+//! \param [out] z - z points to celestial north pole (i.e. J2000.0).
+//! \param [out] ra - Right ascension of the object (J2000.0, radians, relative to geocentre)
+//! \param [out] dec - Declination of the object (J2000.0, radians, relative to geocentre)
 //! \param [out] mag - Estimated V-band magnitude of the object
 //! \param [out] phase - Phase of the object (0-1)
-//! \param [out] angSize - Angular size of the object
-//! \param [out] phySize - Physical size of the object
-//! \param [out] albedo - Albedo of the object
-//! \param [out] sunDist - Distance of the object from the Sun
-//! \param [out] earthDist - Distance of the object from the Earth
-//! \param [out] sunAngDist - Angular distance of the object from the Sun, as seen from the Earth
-//! \param [out] theta_ESO - Angular distance of the object from the Earth, as seen from the Sun
-//! \param [out] eclipticLongitude - The ecliptic longitude of the object
-//! \param [out] eclipticLatitude - The ecliptic latitude of the object
-//! \param [out] eclipticDistance - The separation of the object from the Sun, in ecliptic longitude
+//! \param [out] angSize - Angular size of the object (diameter; arcseconds)
+//! \param [out] phySize - Physical size of the object (diameter; metres)
+//! \param [out] albedo - Albedo of the object (0-1)
+//! \param [out] sunDist - Distance of the object from the Sun (AU)
+//! \param [out] earthDist - Distance of the object from the Earth (AU)
+//! \param [out] sunAngDist - Angular distance of the object from the Sun, as seen from the Earth (radians)
+//! \param [out] theta_ESO - Angular distance of the object from the Earth, as seen from the Sun (radians)
+//! \param [out] eclipticLongitude - The ecliptic longitude of the object (J2000.0 radians)
+//! \param [out] eclipticLatitude - The ecliptic latitude of the object (J2000.0 radians)
+//! \param [out] eclipticDistance - The separation of the object from the Sun, in ecliptic longitude (radians)
+//! \param [in] ra_dec_epoch - The epoch of the RA/Dec coordinates to output. Supply 2451545.0 for J2000.0.
+//! \param [in] do_topocentric_correction - Boolean indicating whether to apply topocentric correction to (ra, dec)
+//! \param [in] topocentric_latitude - Latitude (deg) of observer on Earth, if topocentric correction is applied.
+//! \param [in] topocentric_longitude - Longitude (deg) of observer on Earth, if topocentric correction is applied.
 
-void jpl_computeEphemeris(settings *i, int bodyId, double jd, double *x, double *y, double *z, double *ra, double *dec,
+void jpl_computeEphemeris(int bodyId, const double jd, double *x, double *y, double *z, double *ra, double *dec,
                           double *mag, double *phase, double *angSize, double *phySize, double *albedo, double *sunDist,
                           double *earthDist, double *sunAngDist, double *theta_ESO, double *eclipticLongitude,
-                          double *eclipticLatitude, double *eclipticDistance) {
+                          double *eclipticLatitude, double *eclipticDistance, const double ra_dec_epoch,
+                          const int do_topocentric_correction,
+                          const double topocentric_latitude, const double topocentric_longitude) {
+    // Position of the Sun relative to the solar system barycentre, J2000.0 equatorial coordinates, AU
     double sun_pos_x, sun_pos_y, sun_pos_z;
-    double EMX, EMY, EMZ; // Position of the Earth-Moon centre of mass
+
+    // Position of the Earth-Moon barycentre, relative to the solar system barycentre, AU
+    double EMX, EMY, EMZ;
+
+    // Moon's position relative to the Earth-Moon barycentre, AU
     double moon_pos_x, moon_pos_y, moon_pos_z;
+
+    // Earth's position relative to the solar system barycentre, J2000.0 equatorial coordinates, AU
     double earth_pos_x, earth_pos_y, earth_pos_z;
 
-    // Boolean flags indicating whether we're dealing with a particular object which needs special treatment
+    // Boolean flags indicating whether this is the Earth, Sun or Moon (which need special treatment)
     int is_moon = 0, is_earth = 0, is_sun = 0;
+
+    double EMX_future, EMY_future, EMZ_future; // Position of the Earth-Moon centre of mass
+    double moon_pos_x_future, moon_pos_y_future, moon_pos_z_future;
+    double earth_pos_x_future, earth_pos_y_future, earth_pos_z_future;
 
     // Body 19 is the Earth.
     // DE430 gives us the Earth/Moon barycentre (body 2), from which we subtract a small fraction of the Moon's
@@ -679,11 +698,12 @@ void jpl_computeEphemeris(settings *i, int bodyId, double jd, double *x, double 
         is_sun = 1;
     }
 
-    // We give asteroids body numbers which start at 1e6 + 1 (Ceres). These aren't in DE430, so use orbital elements.
-    if (bodyId > 1000000) {
-        orbitalElements_computeEphemeris(i, bodyId, jd, x, y, z, ra, dec, mag, phase, angSize, phySize, albedo, sunDist,
+    // We give asteroids body numbers which start at 1e7 + 1 (Ceres). These aren't in DE430, so use orbital elements.
+    if (bodyId > 10000000) {
+        orbitalElements_computeEphemeris(bodyId, jd, x, y, z, ra, dec, mag, phase, angSize, phySize, albedo, sunDist,
                                          earthDist, sunAngDist, theta_ESO, eclipticLongitude, eclipticLatitude,
-                                         eclipticDistance);
+                                         eclipticDistance, ra_dec_epoch,
+                                         do_topocentric_correction, topocentric_latitude, topocentric_longitude);
         return;
     }
 
@@ -701,9 +721,6 @@ void jpl_computeEphemeris(settings *i, int bodyId, double jd, double *x, double 
     const double moon_mass = 0.1093189565989898e-10;
     const double moon_earth_mass_ratio = moon_mass / (moon_mass + earth_mass);
 
-    // Look up the Sun's position
-    jpl_computeXYZ(10, jd, &sun_pos_x, &sun_pos_y, &sun_pos_z);
-
     // Look up the Earth-Moon centre of mass position
     jpl_computeXYZ(2, jd, &EMX, &EMY, &EMZ);
 
@@ -715,6 +732,20 @@ void jpl_computeEphemeris(settings *i, int bodyId, double jd, double *x, double 
     earth_pos_y = EMY - moon_earth_mass_ratio * moon_pos_y;
     earth_pos_z = EMZ - moon_earth_mass_ratio * moon_pos_z;
 
+    // Look up the Sun's position, taking light travel time into account
+    {
+        jpl_computeXYZ(10, jd, &sun_pos_x, &sun_pos_y, &sun_pos_z);
+
+        // Calculate light travel time
+        const double distance = gsl_hypot3(sun_pos_x - earth_pos_x,
+                                           sun_pos_y - earth_pos_y,
+                                           sun_pos_z - earth_pos_z);  // AU
+        const double light_travel_time = distance * GSL_CONST_MKSA_ASTRONOMICAL_UNIT / GSL_CONST_MKSA_SPEED_OF_LIGHT;
+
+        // Look up position of requested object at the time the light left the object
+        jpl_computeXYZ(10, jd - light_travel_time / 86400, &sun_pos_x, &sun_pos_y, &sun_pos_z);
+    }
+
     // If the user's query was about the Earth, we already know its position
     if (is_earth) {
         *x = earth_pos_x;
@@ -722,36 +753,78 @@ void jpl_computeEphemeris(settings *i, int bodyId, double jd, double *x, double 
         *z = earth_pos_z;
     }
 
-        // If the user's query was about the Sun, we already know that position too!
+        // If the user's query was about the Sun, we already know that position too
     else if (is_sun) {
         *x = sun_pos_x;
         *y = sun_pos_y;
         *z = sun_pos_z;
     }
 
-        // If the user's query was about the Moon, we already know that position too!
+        // If the user's query was about the Moon, we already know that position too
     else if (is_moon) {
-        *x = moon_pos_x;
-        *y = moon_pos_y;
-        *z = moon_pos_z;
+        *x = moon_pos_x + earth_pos_x;
+        *y = moon_pos_y + earth_pos_y;
+        *z = moon_pos_z + earth_pos_z;
     }
 
-        // otherwise we need to query DE430 for the particular object the user was looking for
+        // Otherwise we need to query DE430 for the particular object the user was looking for,
+        // taking light travel time into account
     else {
+        // Calculate position of requested object at specified time
         jpl_computeXYZ(bodyId, jd, x, y, z);
+
+        // Calculate light travel time
+        const double distance = gsl_hypot3(*x - earth_pos_x, *y - earth_pos_y, *z - earth_pos_z);  // AU
+        const double light_travel_time = distance * GSL_CONST_MKSA_ASTRONOMICAL_UNIT / GSL_CONST_MKSA_SPEED_OF_LIGHT;
+
+        // Look up position of requested object at the time the light left the object
+        jpl_computeXYZ(bodyId, jd - light_travel_time / 86400, x, y, z);
     }
 
-    // If the body was the Moon, don't forget the add the position of the Earth-Moon centre of mass
-    if (is_moon) {
-        *x += earth_pos_x;
-        *y += earth_pos_y;
-        *z += earth_pos_z;
+    // Look up the Earth-Moon centre of mass position, a short time in the future
+    // We use this to calculate the Earth's velocity vector, which is needed to correct for aberration
+    // (see eqn 7.119 of the Explanatory Supplement)
+    const double eb_dot_timestep = 1e-6; // days
+    const double eb_dot_timestep_sec = eb_dot_timestep * 86400;
+    jpl_computeXYZ(2, jd + eb_dot_timestep, &EMX_future, &EMY_future, &EMZ_future);
+    jpl_computeXYZ(9, jd + eb_dot_timestep, &moon_pos_x_future, &moon_pos_y_future, &moon_pos_z_future);
+    earth_pos_x_future = EMX_future - moon_earth_mass_ratio * moon_pos_x_future;
+    earth_pos_y_future = EMY_future - moon_earth_mass_ratio * moon_pos_y_future;
+    earth_pos_z_future = EMZ_future - moon_earth_mass_ratio * moon_pos_z_future;
+
+    // Equation (7.118) of the Explanatory Supplement - correct for aberration
+    if (!is_earth) {
+        const double u1[3] = {
+                *x - earth_pos_x,
+                *y - earth_pos_y,
+                *z - earth_pos_z
+        };
+        const double u1_mag = gsl_hypot3(u1[0], u1[1], u1[2]);
+        const double u[3] = {u1[0] / u1_mag, u1[1] / u1_mag, u1[2] / u1_mag};
+        const double eb_dot[3] = {
+                earth_pos_x_future - earth_pos_x,
+                earth_pos_y_future - earth_pos_y,
+                earth_pos_z_future - earth_pos_z
+        };
+
+        // Speed of light in AU per time step
+        const double c = GSL_CONST_MKSA_SPEED_OF_LIGHT / GSL_CONST_MKSA_ASTRONOMICAL_UNIT * eb_dot_timestep_sec;
+        const double V[3] = {eb_dot[0] / c, eb_dot[1] / c, eb_dot[2] / c};
+        const double V_mag = gsl_hypot3(V[0], V[1], V[2]);
+        const double beta = sqrt(1 - gsl_pow_2(V_mag));
+        const double f1 = u[0] * V[0] + u[1] * V[1] + u[2] * V[2];
+        const double f2 = 1 + f1 / (1 + beta);
+
+        // Correct for aberration
+        *x = earth_pos_x + (beta * u1[0] + f2 * u1_mag * V[0]) / (1 + f1);
+        *y = earth_pos_y + (beta * u1[1] + f2 * u1_mag * V[1]) / (1 + f1);
+        *z = earth_pos_z + (beta * u1[2] + f2 * u1_mag * V[2]) / (1 + f1);
     }
 
     // Populate other quantities, like the brightness, RA and Dec of the object, based on its XYZ position
     magnitudeEstimate(bodyId, *x, *y, *z, earth_pos_x, earth_pos_y, earth_pos_z, sun_pos_x, sun_pos_y, sun_pos_z, ra,
                       dec, mag, phase, angSize, phySize,
                       albedo, sunDist, earthDist, sunAngDist, theta_ESO, eclipticLongitude, eclipticLatitude,
-                      eclipticDistance, i);
+                      eclipticDistance, ra_dec_epoch, jd,
+                      do_topocentric_correction, topocentric_latitude, topocentric_longitude);
 }
-

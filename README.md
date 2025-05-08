@@ -14,8 +14,8 @@ from Ted Bowell's `astorb.dat` catalogue.
 
 For comets, it obtains orbital elements from the Minor Planet Center's website.
 
-`ephemerisCompute` was written to produce all of the ephemerides on the website
-<https://in-the-sky.org>, which is maintained by the author.
+`ephemerisCompute` was written to produce all the ephemerides on the website
+[https://in-the-sky.org](https://in-the-sky.org), which is maintained by the author.
 
 An [older version of this
 tool](https://www.github.com/dcf21/ephemeris-compute-de405) is also available,
@@ -23,13 +23,13 @@ which uses the NASA DE405 ephemeris (published 1997).
 
 ### Supported operating systems
 
-`ephemerisCompute` is written in C and runs in Linux, MacOS, and other
+`ephemerisCompute` is written in C and runs in Linux, MacOS, and most other
 Unix-like operating systems.
 
 ### License
 
-This code is distributed under the Gnu General Public License. It is (C)
-Dominic Ford 2010 - 2020.
+This code is distributed under the Gnu General Public License. It is © Dominic
+Ford 2010 - 2025.
 
 ### Set up
 
@@ -40,16 +40,42 @@ list of comets.
 This can be done with the shell script `setup.sh`. The total download size will
 be around 500 MB.
 
+Once you have built `ephemerisCompute`, you must not change its location within
+your file system.  During the build process, the absolute path to the
+downloaded data files is stored, and the code will be unable to find these data
+files if their path changes. If you move the code, you must fully rebuild it:
+
+```
+make clean
+./setup.sh
+```
+
+### Docker container
+
+A `Dockerfile` is provided to build `ephemerisCompute`. A `docker-compose`
+script is provided to build the software and display a single demo ephemeris:
+
+```
+docker compose build
+docker compose run ephemeris-compute-de430
+```
+
+To make other ephemerides, open a shell within the Docker container as follows:
+
+```
+docker run -it ephemeris-compute-de430:v6 /bin/bash
+```
+
 ### Producing an ephemeris
 
-Running the command-line tool `bin/ephem.bin` will produce a default ephemeris
-for Jupiter between 2000 Jan 1 and 2000 Feb 1, at midnight each day:
+Running the command-line tool `./bin/ephem.bin` will produce a default
+ephemeris for Jupiter between 2000 Jan 1 and 2000 Feb 1, at midnight each day:
 
-```asm
-dominic@ganymede:~/ephemerisCompute$ ./bin/ephem.bin 
-2451544.500000000000    3.996320681  2.730993728  1.073274469   
-2451545.500000000000    3.991757746  2.736868431  1.075903739   
-2451546.500000000000    3.987185148  2.742736516  1.078530407   
+```
+dominic@ganymede:~/ephemerisCompute$ ./bin/ephem.bin
+2451544.500000000000    3.996320681  2.730993728  1.073274469
+2451545.500000000000    3.991757746  2.736868431  1.075903739
+2451546.500000000000    3.987185148  2.742736516  1.078530407
 ...
 ```
 
@@ -69,6 +95,14 @@ The following command-line arguments can be used to customise the ephemeris:
 
 * `--jd_step` [float] - Specify the interval between the lines in the ephemeris, in days.
 
+* `--jd_list` [string] - Specify an explicit list of Julian day numbers to calculate (optional). If this is specified, this list overrides <jd_min>, <jd_max> and <jd_step>.
+
+* `--latitude` [float] - The latitude of the observation site (deg); only used if topocentric correction enabled.
+
+* `--longitude` [float] - The longitude of the observation site (deg); only used if topocentric correction enabled.
+
+* `--enable_topocentric_correction` [int] - Set to either 0 (return geocentric coordinates) or 1 (return topocentric coordinates).
+
 * `--epoch` [float] - Specify the epoch of the RA/Dec coordinate system, e.g. 2451545.0 for J2000 (default).
 
 * `--objects` [string] - Specify the list of objects to produce ephemerides for. Objects should be separated by commas, e.g. "jupiter, mars" or "P301, A4, 1P/Halley". See below for an explanation of what names are accepted for objects. If multiiple objects are listed, their positions are listed in sets of columns from left to right.
@@ -77,7 +111,7 @@ The following command-line arguments can be used to customise the ephemeris:
 
 * `--output_constellations` [int] - If non-zero, then the final column states the name of the constellation the object is in. Note the fetching this information is one of the slowest routines within ephemerisCompute, so this may have significant performance impact when computing large ephemerides.
 
-* `--use_orbital_elements` [int] - If zero, then the NASA JPL DE430 ephemeris is used to produce the ephemeris. This will give best accuracy (by far). If set to 1, then orbital elements for all objects are used to compute their approximate positions. If set to 2, then algorithms from Jean Meeus's book "Astronomical Algorithms" are used [not currently supported; do not use!]. The positions of comets and asteroids are always computed using orbital elements, since they are not included in DE430.  
+* `--use_orbital_elements` [int] - If zero, then the NASA JPL DE430 ephemeris is used to produce the ephemeris. This will give best accuracy (by far). If set to 1, then orbital elements for all objects are used to compute their approximate positions. If set to 2, then algorithms from Jean Meeus's book "Astronomical Algorithms" are used [not currently supported; do not use!]. The positions of comets and asteroids are always computed using orbital elements, since they are not included in DE430.
 
 * `--output_format` [int] - Selects what data should be returned. The following formats are currently supported:
 
@@ -107,3 +141,22 @@ This section lists the names which are recognised by the `--objects` command-lin
 * `0001P`. Periodic comets may be referred to by their names in the format %4dP
 * `CJ95O010`. Comets may be referred to by their Minor Planet Center designations
 * `C<n>`: Comer number `n`. `n` is the line number within the file [Soft00Cmt.txt](http://www.minorplanetcenter.net/iau/Ephemerides/Comets/Soft00Cmt.txt), downloaded from the Minor Planet Center.
+
+### Change history
+
+**Version 6.0** (23 Feb 2025) - Fix download links and improve documentation.
+
+**Version 5.0** (7 Jan 2025) - Added `--jd_list` command-line option.
+
+**Version 4.0** (23 Sept 2024) - Added optional topocentric correction.
+
+**Version 3.0** (23 Aug 2024) - Added corrections for light travel time and annual aberration. Improvements to numerical stability when calculating hyperbolic orbits.
+
+**Version 2.0** (16 Oct 2022) - Initial public release.
+
+## Author
+
+This code was developed by Dominic Ford
+[https://dcford.org.uk](https://dcford.org.uk). It is distributed under the Gnu
+General Public License V3.
+

@@ -1,7 +1,7 @@
 // sphericalAst.h
 // 
 // -------------------------------------------------
-// Copyright 2015-2020 Dominic Ford
+// Copyright 2015-2025 Dominic Ford
 //
 // This file is part of EphemerisCompute.
 //
@@ -25,8 +25,6 @@
 double angDist_ABC(double xa, double ya, double za, double xb, double yb, double zb, double xc, double yc, double zc);
 
 double angDist_RADec(double ra0, double dec0, double ra1, double dec1);
-
-void ra_dec_from_j2000(double ra0, double dec0, double utc_new, double *ra_out, double *dec_out);
 
 #endif
 

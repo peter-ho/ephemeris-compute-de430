@@ -1,7 +1,7 @@
 // errorReport.h
 // 
 // -------------------------------------------------
-// Copyright 2015-2020 Dominic Ford
+// Copyright 2015-2025 Dominic Ford
 //
 // This file is part of EphemerisCompute.
 //
@@ -36,6 +36,7 @@ void ephem_report(char *msg);
 
 void ephem_log(char *msg);
 
-void dcffread(void *ptr, size_t size, size_t nmemb, FILE *stream);
+void dcf_fread(void *ptr, size_t size, size_t n_requested, FILE *stream,
+               const char *input_filename, const char *source_file, int source_line);
 
 #endif

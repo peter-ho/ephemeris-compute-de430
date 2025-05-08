@@ -1,7 +1,7 @@
 // asciiDouble.h
 // 
 // -------------------------------------------------
-// Copyright 2015-2020 Dominic Ford
+// Copyright 2015-2025 Dominic Ford
 //
 // This file is part of EphemerisCompute.
 //
@@ -38,7 +38,7 @@ void file_readline(FILE *file, char *output);
 
 void get_word(char *out, const char *in, int max);
 
-char *next_word(char *in);
+const char *next_word(const char *in);
 
 char *friendly_time_string();
 
@@ -52,7 +52,7 @@ char *str_underline(const char *in, char *out);
 
 char *str_slice(const char *in, char *out, int start, int end);
 
-char *str_comma_separated_list_scan(char **inscan, char *out);
+char *str_comma_separated_list_scan(const char **inscan, char *out);
 
 int str_cmp_no_case(const char *a, const char *b);
 

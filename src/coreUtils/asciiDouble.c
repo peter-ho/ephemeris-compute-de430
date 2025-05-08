@@ -1,7 +1,7 @@
 // asciiDouble.c
 // 
 // -------------------------------------------------
-// Copyright 2015-2020 Dominic Ford
+// Copyright 2015-2025 Dominic Ford
 //
 // This file is part of EphemerisCompute.
 //
@@ -73,17 +73,12 @@ double get_float(const char *str, int *Nchars) {
     if (negative == 1) accumulator *= -1;                         /* Deals with negatives */
 
     if ((str[pos] == 'e') || (str[pos] == 'E') || (str[pos] == 'd') || (str[pos] == 'D'))
-        accumulator *= pow(10.0,
-                           get_float(
-                                   str +
-                                   pos +
-                                   1,
-                                   &pos2)); /* Deals with exponents */
+        accumulator *= pow(10.0, get_float(str + pos + 1, &pos2)); /* Deals with exponents */
 
     if (pos2 > 0) pos += (1 + pos2); // Add on characters taken up by exponent, including one for the 'e' character.
     if (pos == 0) pos = -1; // Alert the user that this was a blank string!
     if (Nchars != NULL) *Nchars = pos;
-    return (accumulator);
+    return accumulator;
 }
 
 //! valid_float - See whether candidate string is a valid float
@@ -144,7 +139,7 @@ char *numeric_display(double in, int N, int sig_fig, int latex) {
     if ((fabs(in) < 1e10) && (fabs(in) > 1e-3)) {
         x = fabs(in);
         AccLevel = x * (1.0 + pow(10, -sig_fig));
-        dp_max = (int)(sig_fig - log10(x));
+        dp_max = (int) (sig_fig - log10(x));
         for (decimal_level = 0; decimal_level < dp_max; decimal_level++)
             if ((x - ((floor(x * pow(10, decimal_level)) / pow(10, decimal_level)) - x)) < AccLevel)break;
         snprintf(format, 16, "%%.%df", decimal_level);
@@ -238,7 +233,7 @@ void get_word(char *out, const char *in, int max) {
 //! \param in The pointer to the character array we are to advance by one word
 //! \return The pointer to the first non-whitespace character of the second word in the input string
 
-char *next_word(char *in) {
+const char *next_word(const char *in) {
     while ((*in <= ' ') && (*in > '\0')) in++; /* Fast-forward over preceding whitespace */
     while ((*in > ' ') || (*in < '\0')) in++; /* Fast-forward over one word */
     while ((*in <= ' ') && (*in > '\0')) in++; /* Fast-forward over whitespace before next word */
@@ -331,7 +326,7 @@ char *str_slice(const char *in, char *out, int start, int end) {
 //! \param out Character buffer into which to copy a stripped version of the next comma-separated value
 //! \return Pointer to <out>
 
-char *str_comma_separated_list_scan(char **inscan, char *out) {
+char *str_comma_separated_list_scan(const char **inscan, char *out) {
     char *outscan = out;
     while ((**inscan != '\0') && (**inscan != ',')) *(outscan++) = *((*inscan)++);
     if (**inscan == ',') (*inscan)++; // Fast-forward over comma character

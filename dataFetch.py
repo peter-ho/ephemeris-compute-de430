@@ -3,7 +3,7 @@
 # dataFetch.py
 #
 # -------------------------------------------------
-# Copyright 2015-2020 Dominic Ford
+# Copyright 2015-2025 Dominic Ford
 #
 # This file is part of EphemerisCompute.
 #
@@ -18,38 +18,35 @@
 # GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
-# along with EphemerisCompute.  If not, see <http://www.gnu.org/licenses/>.
+# along with EphemerisCompute.  If not, see <https://www.gnu.org/licenses/>.
 # -------------------------------------------------
 
 """
-Automatically download all of the required data files from the internet.
+Automatically download all the required data files from the internet.
 """
 
+import argparse
 import os
 import sys
 import logging
 
+from typing import Dict, List
 
-def fetch_file(web_address, destination, force_refresh=False):
+
+def fetch_file(web_address: str, destination: str, force_refresh: bool = False) -> bool:
     """
     Download a file that we need, using wget.
 
     :param web_address:
         The URL that we should use to fetch the file
-    :type web_address:
-        str
     :param destination:
         The path we should download the file to
-    :type destination:
-        str
     :param force_refresh:
         Boolean flag indicating whether we should download a new copy if the file already exists.
-    :type force_refresh:
-        bool
     :return:
         Boolean flag indicating whether the file was downloaded. Raises IOError if the download fails.
     """
-    logging.info("Fetching file <{}>".format(destination))
+    logging.info("Fetching <{}>".format(destination))
 
     # Check if the file already exists
     if os.path.exists(destination):
@@ -60,52 +57,109 @@ def fetch_file(web_address, destination, force_refresh=False):
             logging.info("File already exists, but downloading fresh copy.")
             os.unlink(destination)
 
-    # Fetch the file with wget
-    os.system("wget -q '{}' -O {}".format(web_address, destination))
+    # Check whether source URL is gzipped
+    supplied_source_is_gzipped: bool = web_address.endswith(".gz")
+    target_is_gzipped: bool = destination.endswith(".gz")
 
-    # Check that the file now exists
-    if not os.path.exists(destination):
-        raise IOError("Could not download file <{}>".format(web_address))
+    # Try downloading file in both gzipped and uncompressed format, as CDS archive sometimes changes compression
+    for source_is_gzipped in [supplied_source_is_gzipped, not supplied_source_is_gzipped]:
+        # Make sure source URL has the right suffix
+        url: str = web_address
+        if source_is_gzipped and not supplied_source_is_gzipped:
+            url = web_address + ".gz"
+        elif supplied_source_is_gzipped and not source_is_gzipped:
+            url = web_address.strip(".gz")
 
-    return True
+        # Make sure file destination has the right suffix
+        destination_download: str = destination
+        if source_is_gzipped and not target_is_gzipped:
+            destination_download = destination + ".gz"
+        elif target_is_gzipped and not source_is_gzipped:
+            destination_download = destination.strip(".gz")
+
+        # Fetch the file with wget
+        logging.info("Downloading <{}> to <{}>".format(url, destination_download))
+        try:
+            # It would be great to use Python's urllib here. But handling connection retries, catching 404 errors,
+            # preserving file timestamps, etc., all has to be done manually. Oh, and if you want a progress bar...
+            status: int = os.system("wget '{}' -O '{}'".format(url, destination_download))
+            if status != 0:
+                raise IOError("wget returned a non-zero status")
+        except IOError:
+            logging.info("wget returned a non-zero status")
+            logging.info("Download failed; attempting alternative URLs")
+            continue
+
+        # Check that the file now exists
+        if not (os.path.exists(destination_download) and os.path.getsize(destination_download) > 0):
+            logging.info("Download failed; attempting alternative URLs")
+            continue
+
+        # Check that file is compressed or uncompressed, as required
+        if source_is_gzipped and not target_is_gzipped:
+            logging.info("Uncompressing to <{}>".format(destination))
+            os.system("gunzip {}".format(destination_download))
+        elif target_is_gzipped and not source_is_gzipped:
+            logging.info("Compressing to <{}>".format(destination))
+            os.system("gzip {}".format(destination_download))
+
+        # Check that the file now exists
+        if not os.path.exists(destination):
+            raise IOError("Failed to create target file. Is gzip/gunzip installed?")
+
+        # Success!
+        return True
+
+    # We didn't manage to download the file...
+    raise IOError("Could not download file <{}>".format(web_address))
 
 
-def fetch_required_files():
+def fetch_required_files(refresh: bool) -> None:
+    """
+    Fetch all the files we require.
+
+    :param refresh:
+        Switch indicating whether to fetch fresh copies of any files we've already downloaded.
+    :type refresh:
+        bool
+    :return:
+        None
+    """
     # List of the files we require
-    required_files = [
+    required_files: List[Dict[str, str | bool]] = [
         {
-            'url': 'ftp://ftp.lowell.edu/pub/elgb/astorb.dat.gz',
-            'destination': 'data/astorb.dat.gz',
+            'url': 'https://ftp.lowell.edu/pub/elgb/astorb.dat.gz',
+            'destination': 'data/astorb.dat',
             'force_refresh': True
         },
         {
-            'url': 'https://www.minorplanetcenter.net/iau/MPCORB/CometEls.txt',
+            'url': 'https://www.minorplanetcenter.net/iau/MPCORB/AllCometEls.txt',
             'destination': 'data/Soft00Cmt.txt',
             'force_refresh': True
         },
         {
-            'url': 'ftp://ssd.jpl.nasa.gov/pub/eph/planets/ascii/de430/header.430_572',
+            'url': 'https://ssd.jpl.nasa.gov/ftp/eph/planets/ascii/de430/header.430_572',
             'destination': 'data/header.430',
-            'force_refresh': False
+            'force_refresh': refresh
         },
-        {
-            'url': 'http://cdsarc.u-strasbg.fr/ftp/VI/49/bound_20.dat.gz',
-            'destination': 'constellations/bound_20.dat.gz',
-            'force_refresh': False
-        },
-        {
-            'url': 'http://cdsarc.u-strasbg.fr/ftp/VI/49/ReadMe',
-            'destination': 'constellations/ReadMe',
-            'force_refresh': False
-        }
+#       {
+#           'url': 'https://cdsarc.u-strasbg.fr/ftp/VI/49/bound_20.dat.gz',
+#           'destination': 'constellations/bound_20.dat',
+#           'force_refresh': refresh
+#       },
+#       {
+#           'url': 'https://cdsarc.u-strasbg.fr/ftp/VI/49/ReadMe',
+#           'destination': 'constellations/ReadMe',
+#           'force_refresh': refresh
+#       }
     ]
 
     # Fetch the JPL DE430 ephemeris
     for year in range(1550, 2551, 100):
         required_files.append({
-            'url': 'ftp://ssd.jpl.nasa.gov/pub/eph/planets/ascii/de430/ascp{:04d}.430'.format(year),
+            'url': 'https://ssd.jpl.nasa.gov/ftp/eph/planets/ascii/de430/ascp{:04d}.430'.format(year),
             'destination': 'data/ascp{:04d}.430'.format(year),
-            'force_refresh': False
+            'force_refresh': refresh
         })
 
     # Fetch all the files
@@ -115,14 +169,18 @@ def fetch_required_files():
                    force_refresh=required_file['force_refresh']
                    )
 
-    # Unzip the Lowell database of asteroid orbital elements
-    os.system("gunzip -f data/astorb.dat.gz")
-
-    # ... and the constellation boundaries
-    os.system("gunzip -f constellations/bound_20.dat.gz")
-
 
 if __name__ == "__main__":
+    # Read command-line arguments
+    parser = argparse.ArgumentParser(description=__doc__)
+
+    # Add command-line options
+    parser.add_argument('--refresh', dest='refresh', action='store_true', help='Download a fresh copy of all files.')
+    parser.add_argument('--no-refresh', dest='refresh', action='store_false', help='Do not re-download existing files.')
+    parser.set_defaults(refresh=False)
+    args = parser.parse_args()
+
+    # Set up logging
     logging.basicConfig(level=logging.INFO,
                         stream=sys.stdout,
                         format='[%(asctime)s] %(levelname)s:%(filename)s:%(message)s',
@@ -130,4 +188,5 @@ if __name__ == "__main__":
     logger = logging.getLogger(__name__)
     logger.info(__doc__.strip())
 
-    fetch_required_files()
+    # Fetch all the data
+    fetch_required_files(refresh=args.refresh)

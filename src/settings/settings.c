@@ -1,7 +1,7 @@
 // settings.c
 // 
 // -------------------------------------------------
-// Copyright 2015-2020 Dominic Ford
+// Copyright 2015-2025 Dominic Ford
 //
 // This file is part of EphemerisCompute.
 //
@@ -36,6 +36,9 @@ void settings_default(settings *i) {
     i->jd_min = 2451544.5;
     i->jd_max = 2451575.5;
     i->jd_step = 1.0;
+    i->latitude = 0;
+    i->longitude = 0;
+    i->enable_topocentric_correction = 0;
     i->ra_dec_epoch = 2451545.0;  // By default, use J2000 coordinates
     i->output_format = 0;
     i->use_orbital_elements = 0;
@@ -43,6 +46,7 @@ void settings_default(settings *i) {
     i->output_binary = 0;
     i->objects_count = 0;
     i->objects_input_list = "jupiter";
+    i->jd_list = NULL;
 }
 
 // Process the contents of a settings structure before producing the ephemeris
@@ -107,10 +111,10 @@ void settings_process(settings *i) {
             i->body_id[k] = 10;
         else if (((name[0] == 'a') || (name[0] == 'A')) && valid_float(name + 1, NULL)) {
             // Asteroid, e.g. A1
-            i->body_id[k] = 1000000 + (int) get_float(name + 1, NULL);
+            i->body_id[k] = 10000000 + (int) get_float(name + 1, NULL);
         } else if (((name[0] == 'c') || (name[0] == 'C')) && valid_float(name + 1, NULL)) {
             // Comet, e.g. C1 (first in datafile)
-            i->body_id[k] = 2000000 + (int) get_float(name + 1, NULL);
+            i->body_id[k] = 20000000 + (int) get_float(name + 1, NULL);
         } else {
             // Search for comets with matching names
 
@@ -124,7 +128,7 @@ void settings_process(settings *i) {
                 orbitalElements *item = orbitalElements_comets_fetch(index);
 
                 if ((str_cmp_no_case(name, item->name) == 0) || (str_cmp_no_case(name, item->name2) == 0)) {
-                    i->body_id[k] = 2000000 + index;
+                    i->body_id[k] = 20000000 + index;
                     break;
                 }
             }
