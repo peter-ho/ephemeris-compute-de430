@@ -9,6 +9,10 @@ RUN apt-get install -y apt-utils dialog file git vim python3 python3-dev \
                        pkg-config \
                        ; apt-get clean
 
+## added to support ephemeris capture
+RUN apt-get install -y python3-dateutil python3-pandas \
+                       ; apt-get clean
+
 # Copy code into container
 WORKDIR /
 ADD . ephemeris-compute
@@ -20,3 +24,4 @@ RUN /ephemeris-compute/setup.sh
 
 # Check that binary quick-lookup files are generated
 RUN ./bin/ephem.bin
+
